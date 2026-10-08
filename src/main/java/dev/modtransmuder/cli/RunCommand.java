@@ -7,12 +7,16 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import dev.modtransmuder.config.Config;
 import dev.modtransmuder.config.ConfigLoader;
 import dev.modtransmuder.error.ConfigException;
+import dev.modtransmuder.error.DownloadException;
 import dev.modtransmuder.error.ExitCode;
+import dev.modtransmuder.error.UnpackException;
 import dev.modtransmuder.pipeline.PipelineContext;
 import dev.modtransmuder.pipeline.Stage;
 import dev.modtransmuder.pipeline.StageResult;
 import dev.modtransmuder.pipeline.StageSequencer;
 import dev.modtransmuder.pipeline.Status;
+import dev.modtransmuder.stage.download.DownloadStage;
+import dev.modtransmuder.stage.unpack.UnpackStage;
 import dev.modtransmuder.util.Logger;
 import dev.modtransmuder.util.PathResolver;
 import dev.modtransmuder.util.PathResolver.ResolvedPaths;
@@ -134,7 +138,7 @@ public final class RunCommand implements Callable<Integer> {
         if (dryRun) {
             List<StageResult> results = new StageSequencer().run(
                     placeholderStages(),
-                    new PipelineContext(config, paths, logger),
+                    new PipelineContext(config, paths, logger, keepStaging),
                     config.stopIfFail());
             printPlan(results);
             printJsonSummary("dry-run", "dry-run",
@@ -142,9 +146,89 @@ public final class RunCommand implements Callable<Integer> {
             return ExitCode.OK.value();
         }
 
-        logger.error("not implemented yet: only --dry-run is functional in this skeleton");
-        printJsonSummary("not-implemented", "not implemented", STAGE_ORDER);
-        return ExitCode.GENERIC.value();
+        List<Stage> selected = selectStages(pipelineStages());
+        if (selected == null) {
+            return ExitCode.GENERIC.value();
+        }
+        List<StageResult> results = new StageSequencer().run(
+                selected,
+                new PipelineContext(config, paths, logger, keepStaging),
+                config.stopIfFail());
+        printStageResults(results);
+        printJsonSummary(results);
+        return exitCodeFrom(results).value();
+    }
+
+    /** Maps a FAILED run's throwable to an exit code per §7; OK if nothing failed. */
+    private ExitCode exitCodeFrom(List<StageResult> results) {
+        for (StageResult r : results) {
+            if (r.status() == Status.FAILED) {
+                Throwable t = r.throwable();
+                if (t instanceof DownloadException) {
+                    return ExitCode.DOWNLOAD;
+                }
+                if (t instanceof UnpackException) {
+                    return ExitCode.UNPACK;
+                }
+                return ExitCode.GENERIC;
+            }
+        }
+        return ExitCode.OK;
+    }
+
+    /**
+     * Applies {@code --only} / {@code --from} to the full stage list. Returns
+     * {@code null} (and prints an error) when both flags are given or the
+     * id is unknown; the caller then maps to a non-zero exit code.
+     */
+    private List<Stage> selectStages(List<Stage> all) {
+        if (only != null && from != null) {
+            System.err.println("ERROR: cannot use --only and --from together.");
+            return null;
+        }
+        if (only != null) {
+            for (Stage s : all) {
+                if (s.id().equals(only)) {
+                    return List.of(s);
+                }
+            }
+            System.err.println("ERROR: unknown stage id: '" + only
+                    + "' (expected one of " + stageIds(all) + ")");
+            return null;
+        }
+        if (from != null) {
+            for (int i = 0; i < all.size(); i++) {
+                if (all.get(i).id().equals(from)) {
+                    return new java.util.ArrayList<>(all.subList(i, all.size()));
+                }
+            }
+            System.err.println("ERROR: unknown stage id: '" + from
+                    + "' (expected one of " + stageIds(all) + ")");
+            return null;
+        }
+        return all;
+    }
+
+    private static String stageIds(List<Stage> stages) {
+        return stages.stream().map(Stage::id).collect(Collectors.joining(", "));
+    }
+
+    private static List<Stage> pipelineStages() {
+        return java.util.List.of(
+                new DownloadStage(),
+                new UnpackStage(),
+                new PlaceholderStage("stage-transform"),
+                new PlaceholderStage("stage-validate"));
+    }
+
+    private static void printStageResults(List<StageResult> results) {
+        for (StageResult r : results) {
+            String line = r.stageId() + "=" + r.status();
+            if (r.message() != null) {
+                line += " " + r.message();
+            }
+            System.err.println(line);
+        }
     }
 
     private Logger.Level effectiveLevel(Config config) {
@@ -254,6 +338,30 @@ public final class RunCommand implements Callable<Integer> {
             stage.put("status", "SKIPPED");
             if (note != null) {
                 stage.put("note", note);
+            }
+        }
+        try {
+            System.out.println(json.writeValueAsString(root));
+        } catch (IOException e) {
+            System.err.println("ERROR: failed to serialize JSON summary: " + e.getMessage());
+        }
+    }
+
+    /**
+     * JSON summary for a real (non-dry-run) run: actual per-stage status and
+     * message on stdout.
+     */
+    private void printJsonSummary(List<StageResult> results) {
+        ObjectNode root = json.createObjectNode();
+        root.put("overall", results.stream().allMatch(r -> r.status() == Status.SUCCESS || r.status() == Status.SKIPPED)
+                ? "success" : "failure");
+        ArrayNode stages = root.putArray("stages");
+        for (StageResult r : results) {
+            ObjectNode stage = stages.addObject();
+            stage.put("id", r.stageId());
+            stage.put("status", r.status().name());
+            if (r.message() != null) {
+                stage.put("message", r.message());
             }
         }
         try {

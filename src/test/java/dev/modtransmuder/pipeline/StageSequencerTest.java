@@ -21,7 +21,7 @@ class StageSequencerTest {
                 "https://example.com/t.zip", "out", "in",
                 new ObjectMapper().createArrayNode(), true,
                 null, null, null, null);
-        return new PipelineContext(config, PathResolver.resolve(config), new Logger());
+        return new PipelineContext(config, PathResolver.resolve(config), new Logger(), false);
     }
 
     @Test
