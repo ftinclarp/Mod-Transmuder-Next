@@ -8,6 +8,11 @@ import dev.modtransmuder.config.Config;
 import dev.modtransmuder.config.ConfigLoader;
 import dev.modtransmuder.error.ConfigException;
 import dev.modtransmuder.error.ExitCode;
+import dev.modtransmuder.pipeline.PipelineContext;
+import dev.modtransmuder.pipeline.Stage;
+import dev.modtransmuder.pipeline.StageResult;
+import dev.modtransmuder.pipeline.StageSequencer;
+import dev.modtransmuder.pipeline.Status;
 import dev.modtransmuder.util.Logger;
 import dev.modtransmuder.util.PathResolver;
 import dev.modtransmuder.util.PathResolver.ResolvedPaths;
@@ -21,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.stream.Collectors;
 
 /**
  * The {@code run} command — the whole CLI surface of ARCHITECTURE §6.
@@ -112,9 +118,10 @@ public final class RunCommand implements Callable<Integer> {
         }
 
         logger.setThreshold(effectiveLevel(config));
+        ResolvedPaths paths;
         try {
             config = applyOverrides(config);
-            ResolvedPaths paths = PathResolver.resolve(config);
+            paths = PathResolver.resolve(config);
             logger.debug("resolved input=" + paths.inputDir()
                     + " output=" + paths.outputDir()
                     + " cache=" + paths.cacheDir()
@@ -125,13 +132,18 @@ public final class RunCommand implements Callable<Integer> {
         }
 
         if (dryRun) {
-            printPlan();
-            printJsonSummary("dry-run", "dry-run");
+            List<StageResult> results = new StageSequencer().run(
+                    placeholderStages(),
+                    new PipelineContext(config, paths, logger),
+                    config.stopIfFail());
+            printPlan(results);
+            printJsonSummary("dry-run", "dry-run",
+                    results.stream().map(StageResult::stageId).toList());
             return ExitCode.OK.value();
         }
 
         logger.error("not implemented yet: only --dry-run is functional in this skeleton");
-        printJsonSummary("not-implemented", "not implemented");
+        printJsonSummary("not-implemented", "not implemented", STAGE_ORDER);
         return ExitCode.GENERIC.value();
     }
 
@@ -196,10 +208,34 @@ public final class RunCommand implements Callable<Integer> {
         }
     }
 
-    private void printPlan() {
+    /** The four placeholder stages for --dry-run; real implementations replace these one at a time. */
+    private List<Stage> placeholderStages() {
+        return STAGE_ORDER.stream().map(PlaceholderStage::new).collect(Collectors.toList());
+    }
+
+    /** Trivial placeholder returning SKIPPED — one per configured stage id. */
+    private static final class PlaceholderStage implements Stage {
+        private final String id;
+
+        PlaceholderStage(String id) {
+            this.id = id;
+        }
+
+        @Override
+        public String id() {
+            return id;
+        }
+
+        @Override
+        public StageResult run(PipelineContext ctx) {
+            return new StageResult(id, Status.SKIPPED, "not implemented", null, 0L);
+        }
+    }
+
+    private void printPlan(List<StageResult> results) {
         System.out.println("Planned stages (dry-run, nothing executed):");
-        for (String id : STAGE_ORDER) {
-            System.out.println("  " + id);
+        for (StageResult r : results) {
+            System.out.println("  " + r.stageId());
         }
     }
 
@@ -208,11 +244,11 @@ public final class RunCommand implements Callable<Integer> {
      * dry-run every stage reports SKIPPED with the given note; the note is
      * "dry-run" for dry-run and "not implemented" otherwise.
      */
-    private void printJsonSummary(String overall, String note) {
+    private void printJsonSummary(String overall, String note, List<String> ids) {
         ObjectNode root = json.createObjectNode();
         root.put("overall", overall);
         ArrayNode stages = root.putArray("stages");
-        for (String id : STAGE_ORDER) {
+        for (String id : ids) {
             ObjectNode stage = stages.addObject();
             stage.put("id", id);
             stage.put("status", "SKIPPED");
