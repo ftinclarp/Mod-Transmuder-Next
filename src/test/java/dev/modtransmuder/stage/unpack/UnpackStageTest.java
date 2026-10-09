@@ -68,4 +68,40 @@ class UnpackStageTest {
         assertFalse(Files.exists(output.resolve("MTN-template-2")),
                 "wrapper dir must be gone after flatten");
     }
+
+    @Test
+    void cleansExistingOutputBeforeSwap() throws IOException {
+        Path output = tmp.resolve("out");
+        // A stale out/ as left behind by a validate run: build/, .gradle/, src/.
+        Files.createDirectories(output.resolve("build/classes/java/main"));
+        writeFile(output.resolve("build/classes/java/main/Example.class"), "old-class");
+        Files.createDirectories(output.resolve(".gradle"));
+        writeFile(output.resolve(".gradle/stale.lock"), "lock");
+        Files.createDirectories(output.resolve("src/main"));
+        writeFile(output.resolve("src/main/gradle.properties"), "old");
+
+        PipelineContext ctx = context(output, zipWithWrapperDir());
+
+        StageResult result = new UnpackStage().run(ctx);
+
+        assertEquals(Status.SUCCESS, result.status(), result.message());
+        // New template contents landed on top of the stale tree.
+        assertTrue(Files.isRegularFile(output.resolve("build.gradle")),
+                "new build.gradle must be present");
+        assertTrue(Files.isRegularFile(output.resolve("settings.gradle")));
+        assertTrue(Files.isRegularFile(output.resolve("gradle.properties")));
+        assertTrue(Files.isRegularFile(output.resolve("src/main/java/Example.java")));
+        // Stale build/ output is gone.
+        assertFalse(Files.exists(output.resolve("build/classes/java/main")),
+                "stale build/ contents must be gone");
+        assertFalse(Files.exists(output.resolve(".gradle/stale.lock")),
+                "stale .gradle/ contents must be gone");
+        assertFalse(Files.exists(output.resolve("src/main/gradle.properties")),
+                "stale src/ content must be gone");
+    }
+
+    private static void writeFile(Path path, String content) throws IOException {
+        Files.createDirectories(path.getParent());
+        Files.writeString(path, content);
+    }
 }
