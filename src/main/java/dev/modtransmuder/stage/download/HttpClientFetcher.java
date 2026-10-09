@@ -17,8 +17,13 @@ final class HttpClientFetcher implements HttpFetcher {
 
     @Override
     public byte[] fetch(URI uri, Duration connectTimeout, Duration readTimeout) throws IOException {
+        // GitHub's /archive/... URLs 302-redirect to codeload.github.com, so
+        // follow redirects. NORMAL = follow HTTPS->HTTPS and HTTPS->HTTP, but
+        // never downgrade HTTPS->HTTP where the original was HTTPS (ALWAYS
+        // would, so we do not use it).
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(connectTimeout)
+                .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
         HttpRequest request = HttpRequest.newBuilder(uri)
                 .timeout(readTimeout)
