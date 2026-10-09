@@ -18,6 +18,7 @@ import dev.modtransmuder.pipeline.Status;
 import dev.modtransmuder.stage.download.DownloadStage;
 import dev.modtransmuder.stage.transform.TransformStage;
 import dev.modtransmuder.stage.unpack.UnpackStage;
+import dev.modtransmuder.stage.validate.ValidateStage;
 import dev.modtransmuder.util.Logger;
 import dev.modtransmuder.util.PathResolver;
 import dev.modtransmuder.util.PathResolver.ResolvedPaths;
@@ -219,7 +220,7 @@ public final class RunCommand implements Callable<Integer> {
                 new DownloadStage(),
                 new UnpackStage(),
                 new TransformStage(),
-                new PlaceholderStage("stage-validate"));
+                new ValidateStage());
     }
 
     private static void printStageResults(List<StageResult> results) {
