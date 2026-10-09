@@ -16,6 +16,7 @@ import dev.modtransmuder.pipeline.StageResult;
 import dev.modtransmuder.pipeline.StageSequencer;
 import dev.modtransmuder.pipeline.Status;
 import dev.modtransmuder.stage.download.DownloadStage;
+import dev.modtransmuder.stage.transform.TransformStage;
 import dev.modtransmuder.stage.unpack.UnpackStage;
 import dev.modtransmuder.util.Logger;
 import dev.modtransmuder.util.PathResolver;
@@ -217,7 +218,7 @@ public final class RunCommand implements Callable<Integer> {
         return java.util.List.of(
                 new DownloadStage(),
                 new UnpackStage(),
-                new PlaceholderStage("stage-transform"),
+                new TransformStage(),
                 new PlaceholderStage("stage-validate"));
     }
 
