@@ -13,3 +13,7 @@ build/
 out/
 
 .vscode/
+
+# Test input data (in-mods) — ignore contents, keep this README
+in-mods/*
+!in-mods/README.md
