@@ -12,12 +12,15 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * {@code stage-unpack} (ARCHITECTURE §5). Extracts the template zip (whose
  * path is read from {@link PipelineContext#lastZipPath()}) into a staging dir
- * next to the output, then swaps it into place.
+ * next to the output, flattens the single wrapper dir that GitHub archive
+ * URLs add, then swaps it into place. Pure extract + flatten; no cleanup.
  */
 public final class UnpackStage implements Stage {
 
@@ -41,11 +44,7 @@ public final class UnpackStage implements Stage {
         try {
             Files.createDirectories(staging);
             ZipUtil.extractSafely(zipPath, staging);
-
-            deleteQuietly(staging.resolve(".git"));
-            deleteQuietly(staging.resolve("LICENSE"));
-            deleteQuietly(staging.resolve("README.md"));
-
+            flattenSingleTopLevelDir(staging);
             swapIntoPlace(staging, outputDir, ctx);
             return new StageResult(id(), Status.SUCCESS, "unpacked: " + outputDir, null, 0L);
         } catch (IOException e) {
@@ -54,6 +53,30 @@ public final class UnpackStage implements Stage {
             }
             throw new UnpackException("unpack failed: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * If {@code staging} contains exactly one entry and that entry is a
+     * directory, moves the directory's contents up into {@code staging} and
+     * deletes the now-empty directory. Otherwise leaves the tree untouched.
+     */
+    private static void flattenSingleTopLevelDir(Path staging) throws IOException {
+        List<Path> entries;
+        try (var stream = Files.list(staging)) {
+            entries = stream.collect(Collectors.toList());
+        }
+        if (entries.size() != 1 || !Files.isDirectory(entries.get(0))) {
+            return; // not a single wrapper dir — leave as-is
+        }
+        Path wrapper = entries.get(0);
+        List<Path> inner;
+        try (var stream = Files.list(wrapper)) {
+            inner = stream.collect(Collectors.toList());
+        }
+        for (Path child : inner) {
+            Files.move(child, staging.resolve(child.getFileName()));
+        }
+        Files.delete(wrapper);
     }
 
     /**
@@ -74,12 +97,6 @@ public final class UnpackStage implements Stage {
                 deleteRecursively(output);
             }
             Files.move(staging, output);
-        }
-    }
-
-    private static void deleteQuietly(Path target) {
-        if (target != null && Files.exists(target)) {
-            deleteRecursively(target);
         }
     }
 
