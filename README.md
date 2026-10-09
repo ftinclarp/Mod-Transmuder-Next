@@ -38,3 +38,7 @@ Invalid config (missing keys, unknown keys, wrong types) → exit 2 with an
 `ERROR:` line on stderr. See `docs/ARCHITECTURE.md` §6–§7 for the full CLI
 and exit-code contract.
 
+## License
+
+MIT. See [LICENSE](LICENSE).
+
