@@ -50,7 +50,7 @@ class TransformStageIntegrationTest {
         Config config = new Config(
                 "https://example.com/template.zip", out.toString(), inMods.toString(),
                 new ObjectMapper().createArrayNode(), true, null, null, null, null,
-                null, null, null);
+                null, null, null, null, null);
 
         StageResult result = runTransform(config, inMods, out);
         assertEquals(Status.SUCCESS, result.status(), result.message());
@@ -67,13 +67,17 @@ class TransformStageIntegrationTest {
         assertFalse(fabric.contains("\"main\""),
                 "ported mod must NOT declare a main entrypoint (layer owns it): " + fabric);
 
-        // default (use_local_layer absent/false): JitPack + default remote layer version
+        // default (use_local_layer absent/false): JitPack + default remote layer versions
         String build = Files.readString(out.resolve("build.gradle"));
         assertTrue(build.contains("https://jitpack.io"), "JitPack maven repo missing");
         assertTrue(build.contains(
                 "modImplementation \"com.github.ftinclarp:MTN-forge-layer:"
                         + TransformStage.DEFAULT_REMOTE_LAYER_VERSION + "\""),
-                "layer must be a modImplementation dependency: " + build);
+                "forge layer must be a modImplementation dependency: " + build);
+        assertTrue(build.contains(
+                "modImplementation \"com.github.ftinclarp:MTN-minecraft-layer:"
+                        + TransformStage.DEFAULT_REMOTE_MINECRAFT_LAYER_VERSION + "\""),
+                "minecraft layer must be a modImplementation dependency: " + build);
         assertFalse(build.contains("mavenLocal()"), "JitPack mode must not add mavenLocal(): " + build);
     }
 
@@ -84,7 +88,7 @@ class TransformStageIntegrationTest {
         Config config = new Config(
                 "https://example.com/template.zip", out.toString(), inMods.toString(),
                 new ObjectMapper().createArrayNode(), true, null, null, null, null,
-                true, "1.0.2-SNAPSHOT", null);
+                true, "1.0.2-SNAPSHOT", null, "1.0.0-SNAPSHOT", null);
 
         StageResult result = runTransform(config, inMods, out);
         assertEquals(Status.SUCCESS, result.status(), result.message());

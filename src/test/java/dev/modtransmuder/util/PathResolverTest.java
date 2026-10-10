@@ -31,6 +31,8 @@ class PathResolverTest {
                     null,
                     null,
                     null,
+                    null,
+                    null,
                     null);
         } catch (IOException e) {
             throw new AssertionError(e);

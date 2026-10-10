@@ -47,7 +47,14 @@ public final class TransformStage implements Stage {
      * both as {@link Config}'s default and when emitting the dependency into
      * the output build file.
      */
-    public static final String DEFAULT_REMOTE_LAYER_VERSION = "v1.3.0";
+    public static final String DEFAULT_REMOTE_LAYER_VERSION = "v2.0.0";
+
+    /**
+     * Single source of truth for the Minecraft API layer's remote (JitPack)
+     * version, used both as {@link Config}'s default and when emitting the
+     * dependency into the output build file.
+     */
+    public static final String DEFAULT_REMOTE_MINECRAFT_LAYER_VERSION = "v1.0.0";
 
     /** Entrypoint key in the generated fabric.mod.json naming the @Mod class. */
     static final String FORGE_MOD_CLASS_ENTRYPOINT = "mtn:forge-mod-class";
@@ -181,16 +188,23 @@ public final class TransformStage implements Stage {
     // ---------------- 4d helper ----------------
 
     /**
-     * Adds the layer dependency to the output build file
+     * Adds the compatibility layer dependencies to the output build file
      * ({@code build.gradle} — Loom's Groovy template), prefixed with
-     * {@link #LAYER_COMMENT}. Idempotent: no-op when the dependency line is
-     * already present.
+     * {@link #LAYER_COMMENT}. Idempotent: no-op when all dependency lines
+     * are already present.
      *
-     * <p>When {@code useLocalLayer}, the source is the local Maven repo
-     * ({@code mavenLocal()}) and the dependency uses the local version — a
-     * fast dev loop with {@code publishToMavenLocal}, avoiding a JitPack
-     * rebuild wait. Otherwise (default) JitPack is used with the remote
-     * release version.
+     * <p>Two dependencies are wired, mirroring the two-layer split:
+     * <ul>
+     *   <li>{@code com.github.ftinclarp:MTN-forge-layer:<version>} — the FML
+     *       /{@code cpw.mods.fml.*} shim</li>
+     *   <li>{@code com.github.ftinclarp:MTN-minecraft-layer:<version>} — the
+     *       {@code net.minecraft.*} API stand-ins</li>
+     * </ul>
+     * When {@code useLocalLayer}, both come from the local Maven repo
+     * ({@code mavenLocal()}) using the configured local versions — a fast
+     * dev loop with {@code publishToMavenLocal}, avoiding a JitPack rebuild
+     * wait. Otherwise (default) JitPack is used with the remote release
+     * versions.
      */
     private void wireLayerIntoBuild(Path outputDir, Config config) {
         Path buildFile = outputDir.resolve("build.gradle");
@@ -204,23 +218,39 @@ public final class TransformStage implements Stage {
         try {
             String text = Files.readString(buildFile, StandardCharsets.UTF_8);
             boolean local = config.useLocalLayerOrFalse();
-            String depCoord = "com.github.ftinclarp:MTN-forge-layer:"
+            String forgeCoord = "com.github.ftinclarp:MTN-forge-layer:"
                     + (local ? config.effectiveLocalLayerVersion() : config.effectiveRemoteLayerVersion());
-            if (text.contains(depCoord)) {
+            String minecraftCoord = "com.github.ftinclarp:MTN-minecraft-layer:"
+                    + (local ? config.effectiveLocalMinecraftLayerVersion()
+                             : config.effectiveRemoteMinecraftLayerVersion());
+            boolean hasForge = text.contains(forgeCoord);
+            boolean hasMinecraft = text.contains(minecraftCoord);
+            if (hasForge && hasMinecraft) {
                 return; // already wired
             }
+
+            boolean needsRepoLifecycle = false;
             String repoBlock;
             if (local) {
                 repoBlock = LAYER_COMMENT + "\n\tmavenLocal()";
+                needsRepoLifecycle = !text.contains("mavenLocal()");
             } else {
                 repoBlock = LAYER_COMMENT + "\n\tmaven { url = \"https://jitpack.io\" }";
+                needsRepoLifecycle = !text.contains(LAYER_JITPACK_URL);
             }
-            String depBlock = LAYER_COMMENT + "\n\tmodImplementation \"" + depCoord + "\"";
+
             String warped = text;
-            if (!text.contains(LAYER_JITPACK_URL) && !text.contains("mavenLocal()")) {
+            if (needsRepoLifecycle) {
                 warped = insertAfterBlockLine(warped, "repositories {", repoBlock);
             }
-            warped = insertAfterBlockLine(warped, "dependencies {", depBlock);
+            if (!hasForge) {
+                warped = insertAfterBlockLine(warped, "dependencies {",
+                        LAYER_COMMENT + "\n\tmodImplementation \"" + forgeCoord + "\"");
+            }
+            if (!hasMinecraft) {
+                warped = insertAfterBlockLine(warped, "dependencies {",
+                        LAYER_COMMENT + "\n\tmodImplementation \"" + minecraftCoord + "\"");
+            }
             Files.writeString(buildFile, warped, StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new TransformException("failed to wire layer into " + buildFile + ": " + e.getMessage(), e);

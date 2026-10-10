@@ -21,7 +21,7 @@ class ImportRewriterTest {
     @Test
     void rewritesMinecraftImportStatement() {
         assertEquals(
-                "import mtn.forge_layer.net.minecraft.block.Block;",
+                "import mtn.minecraft_layer.net.minecraft.block.Block;",
                 ImportRewriter.rewriteFml("import net.minecraft.block.Block;"));
     }
 
@@ -40,12 +40,21 @@ class ImportRewriterTest {
                 + "import net.minecraft.item.Item;\n"
                 + "class Test { }\n";
         String out = ImportRewriter.rewriteFml(src);
-        assertTrue(out.contains("import mtn.forge_layer.net.minecraft.block.Block;"),
-                "net.minecraft.block must rewrite");
-        assertTrue(out.contains("import mtn.forge_layer.net.minecraft.item.Item;"),
-                "net.minecraft.item must rewrite");
+        assertTrue(out.contains("import mtn.minecraft_layer.net.minecraft.block.Block;"),
+                "net.minecraft.block must rewrite to the minecraft layer");
+        assertTrue(out.contains("import mtn.minecraft_layer.net.minecraft.item.Item;"),
+                "net.minecraft.item must rewrite to the minecraft layer");
         assertTrue(out.contains("import mtn.forge_layer.cpw.mods.fml.common.registry.GameRegistry;"),
-                "cpw.mods.fml must rewrite");
+                "cpw.mods.fml must rewrite to the forge layer");
+        assertFalse(out.contains("mtn.forge_layer.net.minecraft"),
+                "net.minecraft must never rewrite into the forge layer");
+    }
+
+    @Test
+    void rewritesMinecraftIntoMinecraftLayerOnly() {
+        assertEquals(
+                "import mtn.minecraft_layer.net.minecraft.nbt.NBTTagCompound;",
+                ImportRewriter.rewriteFml("import net.minecraft.nbt.NBTTagCompound;"));
     }
 
     @Test

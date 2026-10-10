@@ -14,26 +14,32 @@ import dev.modtransmuder.stage.transform.TransformStage;
  * {@code rewrite_data}, {@code stop_if_fail}.
  * <p>Optional extensions: {@code cache_dir}, {@code timeout_seconds},
  * {@code template_sha256}, {@code verbose}, {@code use_local_layer},
- * {@code local_layer_version}, {@code remote_layer_version}.
+ * {@code local_layer_version}, {@code remote_layer_version},
+ * {@code local_minecraft_layer_version}, {@code remote_minecraft_layer_version}.
  *
- * @param templateZipUrl     URL of the Fabric template zip
- * @param transmudationOutput output directory path
- * @param transmudationInput  input (Forge mod) directory path
- * @param rewriteData         raw inline rewrite rules (array) — parsed
- *                            strictly later
- * @param stopIfFail         abort pipeline on first failure if true
- * @param cacheDir           optional download cache dir
- * @param timeoutSeconds     optional overall timeout for network/build steps
- * @param templateSha256     optional template zip SHA-256 for verification
- * @param verbose            optional flag to enable DEBUG logging
- * @param useLocalLayer      optional; when true, wire the compatibility layer
- *                           from the local Maven repo (publishToMavenLocal)
- *                           instead of JitPack (dev iteration path)
- * @param localLayerVersion  optional layer version for the local repo path;
- *                           effective default {@code 1.0.2-SNAPSHOT}
- * @param remoteLayerVersion optional layer version for the JitPack path;
- *                           effective default
- *                           {@link TransformStage#DEFAULT_REMOTE_LAYER_VERSION}
+ * @param templateZipUrl            URL of the Fabric template zip
+ * @param transmudationOutput       output directory path
+ * @param transmudationInput        input (Forge mod) directory path
+ * @param rewriteData               raw inline rewrite rules (array) — parsed
+ *                                  strictly later
+ * @param stopIfFail                abort pipeline on first failure if true
+ * @param cacheDir                  optional download cache dir
+ * @param timeoutSeconds            optional overall timeout for network/build steps
+ * @param templateSha256            optional template zip SHA-256 for verification
+ * @param verbose                   optional flag to enable DEBUG logging
+ * @param useLocalLayer             optional; when true, wire the compatibility layers
+ *                                  from the local Maven repo (publishToMavenLocal)
+ *                                  instead of JitPack (dev iteration path)
+ * @param localLayerVersion         optional forge-layer version for the local repo
+ *                                  path; effective default {@code 1.0.2-SNAPSHOT}
+ * @param remoteLayerVersion        optional forge-layer version for the JitPack path;
+ *                                  effective default
+ *                                  {@link TransformStage#DEFAULT_REMOTE_LAYER_VERSION}
+ * @param localMinecraftLayerVersion optional minecraft-layer version for the local
+ *                                  repo path; effective default {@code 1.0.0-SNAPSHOT}
+ * @param remoteMinecraftLayerVersion optional minecraft-layer version for the
+ *                                  JitPack path; effective default
+ *                                  {@link TransformStage#DEFAULT_REMOTE_MINECRAFT_LAYER_VERSION}
  */
 public record Config(
         String templateZipUrl,
@@ -47,7 +53,9 @@ public record Config(
         Boolean verbose,
         Boolean useLocalLayer,
         String localLayerVersion,
-        String remoteLayerVersion) {
+        String remoteLayerVersion,
+        String localMinecraftLayerVersion,
+        String remoteMinecraftLayerVersion) {
 
     public Config {
         if (templateZipUrl == null || transmudationOutput == null
@@ -61,15 +69,26 @@ public record Config(
         return Boolean.TRUE.equals(useLocalLayer);
     }
 
-    /** Layer version for the local-Maven path; {@code 1.0.2-SNAPSHOT} when unset/blank. */
+    /** Forge-layer version for the local-Maven path; {@code 1.0.2-SNAPSHOT} when unset/blank. */
     public String effectiveLocalLayerVersion() {
         return nonBlankOr(localLayerVersion, "1.0.2-SNAPSHOT");
     }
 
-    /** Layer version for the JitPack path; default derived from
-     * {@link TransformStage#DEFAULT_REMOTE_LAYER_VERSION} when unset/blank. */
+    /** Forge-layer version for the JitPack path; defaults to
+     * {@link TransformStage#DEFAULT_REMOTE_LAYER_VERSION}. */
     public String effectiveRemoteLayerVersion() {
         return nonBlankOr(remoteLayerVersion, TransformStage.DEFAULT_REMOTE_LAYER_VERSION);
+    }
+
+    /** Minecraft-layer version for the local-Maven path; {@code 1.0.0-SNAPSHOT} when unset/blank. */
+    public String effectiveLocalMinecraftLayerVersion() {
+        return nonBlankOr(localMinecraftLayerVersion, "1.0.0-SNAPSHOT");
+    }
+
+    /** Minecraft-layer version for the JitPack path; defaults to
+     * {@link TransformStage#DEFAULT_REMOTE_MINECRAFT_LAYER_VERSION}. */
+    public String effectiveRemoteMinecraftLayerVersion() {
+        return nonBlankOr(remoteMinecraftLayerVersion, TransformStage.DEFAULT_REMOTE_MINECRAFT_LAYER_VERSION);
     }
 
     private static String nonBlankOr(String value, String fallback) {

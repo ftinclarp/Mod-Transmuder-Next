@@ -29,7 +29,7 @@ class UnpackStageTest {
         Config config = new Config(
                 "https://example.com/template.zip", outputDir.toString(), "in",
                 new ObjectMapper().createArrayNode(), true,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null);
         PipelineContext ctx = new PipelineContext(config, PathResolver.resolve(config), new Logger(), false);
         ctx.setLastZipPath(zip);
         return ctx;

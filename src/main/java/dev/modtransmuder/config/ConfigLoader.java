@@ -33,7 +33,9 @@ public final class ConfigLoader {
             "verbose",
             "use_local_layer",
             "local_layer_version",
-            "remote_layer_version");
+            "remote_layer_version",
+            "local_minecraft_layer_version",
+            "remote_minecraft_layer_version");
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -90,10 +92,13 @@ public final class ConfigLoader {
         Boolean useLocalLayer = optionalBoolean(values, "use_local_layer");
         String localLayerVersion = optionalText(values, "local_layer_version");
         String remoteLayerVersion = optionalText(values, "remote_layer_version");
+        String localMinecraftLayerVersion = optionalText(values, "local_minecraft_layer_version");
+        String remoteMinecraftLayerVersion = optionalText(values, "remote_minecraft_layer_version");
 
         return new Config(templateZipUrl, output, input, rewriteData, stopIfFail,
                 cacheDir, timeoutSeconds, templateSha256, verbose,
-                useLocalLayer, localLayerVersion, remoteLayerVersion);
+                useLocalLayer, localLayerVersion, remoteLayerVersion,
+                localMinecraftLayerVersion, remoteMinecraftLayerVersion);
     }
 
     private static JsonNode required(Map<String, JsonNode> values, String key) throws ConfigException {

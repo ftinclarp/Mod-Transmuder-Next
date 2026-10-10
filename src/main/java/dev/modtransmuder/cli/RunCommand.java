@@ -277,7 +277,9 @@ public final class RunCommand implements Callable<Integer> {
                 raw.verbose(),
                 raw.useLocalLayer(),
                 raw.localLayerVersion(),
-                raw.remoteLayerVersion());
+                raw.remoteLayerVersion(),
+                raw.localMinecraftLayerVersion(),
+                raw.remoteMinecraftLayerVersion());
     }
 
     private JsonNode readRewriteDataFile() {
