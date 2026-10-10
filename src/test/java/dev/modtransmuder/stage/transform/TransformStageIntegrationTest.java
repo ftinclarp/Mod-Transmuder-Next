@@ -51,6 +51,23 @@ class TransformStageIntegrationTest {
         Files.createDirectories(mcmodInfo.getParent());
         Files.writeString(mcmodInfo, MC_MOD_INFO);
 
+        // A Forge @Mod class, so discovery yields a class-name entrypoint.
+        Path exampleMod = modRoot.resolve("src/main/java/com/mtn/example/ExampleMod.java");
+        Files.createDirectories(exampleMod.getParent());
+        Files.writeString(exampleMod, """
+                package com.mtn.example;
+
+                import cpw.mods.fml.common.Mod;
+                import cpw.mods.fml.common.event.FMLPreInitializationEvent;
+
+                @Mod(modid = "mtnexample", name = "MTN Example", version = "1.0")
+                public class ExampleMod {
+                    @Mod.EventHandler
+                    public void preInit(FMLPreInitializationEvent event) {
+                    }
+                }
+                """);
+
         // --- output: minimal template tree ---
         Path out = tmp.resolve("out");
         Path buildFile = out.resolve("build.gradle");
@@ -79,11 +96,13 @@ class TransformStageIntegrationTest {
         JsonAssert.assertField(fabric, "version", "1.0");
         assertTrue(fabric.contains("mtn.forge_layer.FabricEntry"),
                 "entrypoint must point at the layer's FabricEntry");
+        assertTrue(fabric.contains("\"mtn:forge-mod-class\" : [ \"com.mtn.example.ExampleMod\" ]"),
+                "fabric.mod.json must name the @Mod class under mtn:forge-mod-class: " + fabric);
 
         // build wired with JitPack + layer dependency (as a mod, so Loom remaps it to the dev namespace)
         String build = Files.readString(buildFile);
         assertTrue(build.contains("https://jitpack.io"), "JitPack maven repo missing");
-        assertTrue(build.contains("modImplementation \"com.github.ftinclarp:MTN-forge-layer:v1.0.1\""),
+        assertTrue(build.contains("modImplementation \"com.github.ftinclarp:MTN-forge-layer:v1.0.2\""),
                 "layer must be a modImplementation dependency: " + build);
     }
 

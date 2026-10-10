@@ -40,7 +40,12 @@ public final class TransformStage implements Stage {
     /** Comment we add to the output build, per stage 4d. */
     static final String LAYER_COMMENT = "// added by MTN: Forge 1.7.10 compatibility layer";
     static final String LAYER_JITPACK_URL = "https://jitpack.io";
-    static final String LAYER_DEPENDENCY = "com.github.ftinclarp:MTN-forge-layer:v1.0.1";
+    static final String LAYER_DEPENDENCY = "com.github.ftinclarp:MTN-forge-layer:v1.0.2";
+
+    /** Entrypoint key in the generated fabric.mod.json naming the @Mod class. */
+    static final String FORGE_MOD_CLASS_ENTRYPOINT = "mtn:forge-mod-class";
+    /** Annotation whose class becomes the entrypoint target. */
+    private static final String MOD_ANNOTATION_LEAD = "@Mod";
 
     @Override
     public String id() {
@@ -79,11 +84,14 @@ public final class TransformStage implements Stage {
         // 4c — rewrite Forge imports in the copied Java files.
         int rewritten = rewriteJavaImports(outJava);
 
+        // 4c' — discover the @Mod-annotated class in the copied sources.
+        String modClassName = discoverModClass(outJava);
+
         // 4d — wire the layer into the output build.
         wireLayerIntoBuild(outputDir);
 
         // 4e — generate fabric.mod.json.
-        writeFabricModJson(outResources.resolve("fabric.mod.json"), info);
+        writeFabricModJson(outResources.resolve("fabric.mod.json"), info, modClassName);
 
         String message = "modid=" + info.modid() + " copies=" + copied
                 + " rewritten=" + rewritten + " layersWired=1";
@@ -224,7 +232,7 @@ public final class TransformStage implements Stage {
 
     // ---------------- 4e helper ----------------
 
-    private void writeFabricModJson(Path target, ForgeModInfo info) {
+    private void writeFabricModJson(Path target, ForgeModInfo info, String modClassName) {
         ObjectNode root = JSON.createObjectNode();
         root.put("schemaVersion", 1);
         root.put("id", info.modid());
@@ -238,6 +246,10 @@ public final class TransformStage implements Stage {
 
         ObjectNode entrypoints = root.putObject("entrypoints");
         entrypoints.putArray("main").add("mtn.forge_layer.FabricEntry");
+        ArrayNode forgeMods = entrypoints.putArray(FORGE_MOD_CLASS_ENTRYPOINT);
+        if (modClassName != null && !modClassName.isBlank()) {
+            forgeMods.add(modClassName);
+        }
 
         ObjectNode depends = root.putObject("depends");
         depends.put("fabricloader", ">=0.15.0");
@@ -288,6 +300,50 @@ public final class TransformStage implements Stage {
 
     private static boolean hasMcmodInfo(Path root) {
         return Files.isRegularFile(root.resolve("src/main/resources/mcmod.info"));
+    }
+
+    /**
+     * Scans the copied (and already import-rewritten) Java sources for the
+     * first top-level class annotated with {@code @Mod} and returns its
+     * fully-qualified name (package from the {@code package} declaration plus
+     * the source file's base name). Returns {@code null} when none is found.
+     * The {@code @Mod} annotation survives the import rewrite (its simple name
+     * is unchanged); {@code @Mod.EventHandler} usages inside method bodies
+     * also contain {@code "@Mod"} so the match requires the annotation form
+     * {@code "@Mod(" } that precedes a class-level annotation.
+     */
+    private static String discoverModClass(Path outJava) {
+        if (!Files.isDirectory(outJava)) {
+            return null;
+        }
+        try (var walk = Files.walk(outJava)) {
+            for (Path p : (Iterable<Path>) walk.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().endsWith(".java"))::iterator) {
+                String text = Files.readString(p, StandardCharsets.UTF_8);
+                if (!hasClassLevelModAnnotation(text)) {
+                    continue;
+                }
+                String pkg = packageName(text);
+                String simple = p.getFileName().toString().replaceFirst("\\.java$", "");
+                return pkg.isEmpty() ? simple : pkg + "." + simple;
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return null;
+    }
+
+    /** True when the source declares {@code package x.y.z;}. */
+    private static String packageName(String source) {
+        var m = java.util.regex.Pattern
+                .compile("\\bpackage\\s+([a-zA-Z_$][\\w$]*(?:\\.[a-zA-Z_$][\\w$]*)*)\\s*;")
+                .matcher(source);
+        return m.find() ? m.group(1) : "";
+    }
+
+    /** True when a class-level {@code @Mod} annotation is present (not {@code @Mod.EventHandler}). */
+    private static boolean hasClassLevelModAnnotation(String source) {
+        return source.contains("@Mod(") || source.contains("@Mod (");
     }
 
     // ---------------- misc ----------------
