@@ -40,7 +40,7 @@ public final class TransformStage implements Stage {
     /** Comment we add to the output build, per stage 4d. */
     static final String LAYER_COMMENT = "// added by MTN: Forge 1.7.10 compatibility layer";
     static final String LAYER_JITPACK_URL = "https://jitpack.io";
-    static final String LAYER_DEPENDENCY = "com.github.ftinclarp:MTN-forge-layer:v1.0.2";
+    static final String LAYER_DEPENDENCY = "com.github.ftinclarp:MTN-forge-layer:v1.0.3";
 
     /** Entrypoint key in the generated fabric.mod.json naming the @Mod class. */
     static final String FORGE_MOD_CLASS_ENTRYPOINT = "mtn:forge-mod-class";

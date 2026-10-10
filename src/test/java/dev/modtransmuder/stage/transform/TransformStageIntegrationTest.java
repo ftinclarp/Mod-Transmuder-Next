@@ -102,7 +102,7 @@ class TransformStageIntegrationTest {
         // build wired with JitPack + layer dependency (as a mod, so Loom remaps it to the dev namespace)
         String build = Files.readString(buildFile);
         assertTrue(build.contains("https://jitpack.io"), "JitPack maven repo missing");
-        assertTrue(build.contains("modImplementation \"com.github.ftinclarp:MTN-forge-layer:v1.0.2\""),
+        assertTrue(build.contains("modImplementation \"com.github.ftinclarp:MTN-forge-layer:v1.0.3\""),
                 "layer must be a modImplementation dependency: " + build);
     }
 
