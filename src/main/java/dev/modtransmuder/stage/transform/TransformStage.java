@@ -47,7 +47,7 @@ public final class TransformStage implements Stage {
      * both as {@link Config}'s default and when emitting the dependency into
      * the output build file.
      */
-    public static final String DEFAULT_REMOTE_LAYER_VERSION = "v1.0.3";
+    public static final String DEFAULT_REMOTE_LAYER_VERSION = "v1.0.5";
 
     /** Entrypoint key in the generated fabric.mod.json naming the @Mod class. */
     static final String FORGE_MOD_CLASS_ENTRYPOINT = "mtn:forge-mod-class";
