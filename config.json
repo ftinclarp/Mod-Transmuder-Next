@@ -5,6 +5,6 @@
   "rewrite_data": [],
   "stop_if_fail": true,
   "use_local_layer": true,
-  "local_layer_version": "1.2.0",
-  "remote_layer_version": "v1.2.0"
+  "local_layer_version": "1.3.0",
+  "remote_layer_version": "v1.3.0"
 }
