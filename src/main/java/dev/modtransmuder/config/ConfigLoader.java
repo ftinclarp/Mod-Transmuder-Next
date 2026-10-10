@@ -30,7 +30,10 @@ public final class ConfigLoader {
             "cache_dir",
             "timeout_seconds",
             "template_sha256",
-            "verbose");
+            "verbose",
+            "use_local_layer",
+            "local_layer_version",
+            "remote_layer_version");
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -84,9 +87,13 @@ public final class ConfigLoader {
         Integer timeoutSeconds = optionalPositiveInt(values, "timeout_seconds");
         String templateSha256 = optionalText(values, "template_sha256");
         Boolean verbose = optionalBoolean(values, "verbose");
+        Boolean useLocalLayer = optionalBoolean(values, "use_local_layer");
+        String localLayerVersion = optionalText(values, "local_layer_version");
+        String remoteLayerVersion = optionalText(values, "remote_layer_version");
 
         return new Config(templateZipUrl, output, input, rewriteData, stopIfFail,
-                cacheDir, timeoutSeconds, templateSha256, verbose);
+                cacheDir, timeoutSeconds, templateSha256, verbose,
+                useLocalLayer, localLayerVersion, remoteLayerVersion);
     }
 
     private static JsonNode required(Map<String, JsonNode> values, String key) throws ConfigException {

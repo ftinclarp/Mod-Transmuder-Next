@@ -3,5 +3,8 @@
   "transmudation_output": "out",
   "transmudation_input": "in-mods",
   "rewrite_data": [],
-  "stop_if_fail": true
+  "stop_if_fail": true,
+  "use_local_layer": true,
+  "local_layer_version": "1.0.3",
+  "remote_layer_version": "v1.0.3"
 }

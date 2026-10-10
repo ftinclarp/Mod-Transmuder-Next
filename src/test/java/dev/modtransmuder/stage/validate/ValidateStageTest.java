@@ -62,7 +62,7 @@ class ValidateStageTest {
         Config config = new Config(
                 "https://example.com/template.zip", out.toString(), "in",
                 new ObjectMapper().createArrayNode(), true,
-                null, null, null, null);
+                null, null, null, null, null, null, null);
         return new PipelineContext(config, PathResolver.resolve(config), new Logger(), false);
     }
 

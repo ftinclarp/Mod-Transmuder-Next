@@ -3,6 +3,7 @@ package dev.modtransmuder.stage.transform;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import dev.modtransmuder.config.Config;
 import dev.modtransmuder.error.TransformException;
 import dev.modtransmuder.pipeline.PipelineContext;
 import dev.modtransmuder.pipeline.Stage;
@@ -40,7 +41,13 @@ public final class TransformStage implements Stage {
     /** Comment we add to the output build, per stage 4d. */
     static final String LAYER_COMMENT = "// added by MTN: Forge 1.7.10 compatibility layer";
     static final String LAYER_JITPACK_URL = "https://jitpack.io";
-    static final String LAYER_DEPENDENCY = "com.github.ftinclarp:MTN-forge-layer:v1.0.3";
+
+    /**
+     * Single source of truth for the layer's remote (JitPack) version, used
+     * both as {@link Config}'s default and when emitting the dependency into
+     * the output build file.
+     */
+    public static final String DEFAULT_REMOTE_LAYER_VERSION = "v1.0.3";
 
     /** Entrypoint key in the generated fabric.mod.json naming the @Mod class. */
     static final String FORGE_MOD_CLASS_ENTRYPOINT = "mtn:forge-mod-class";
@@ -87,8 +94,8 @@ public final class TransformStage implements Stage {
         // 4c' — discover the @Mod-annotated class in the copied sources.
         String modClassName = discoverModClass(outJava);
 
-        // 4d — wire the layer into the output build.
-        wireLayerIntoBuild(outputDir);
+        // 4d — wire the layer into the output build (local or JitPack per config).
+        wireLayerIntoBuild(outputDir, ctx.config());
 
         // 4e — generate fabric.mod.json.
         writeFabricModJson(outResources.resolve("fabric.mod.json"), info, modClassName);
@@ -175,12 +182,18 @@ public final class TransformStage implements Stage {
     // ---------------- 4d helper ----------------
 
     /**
-     * Adds the JitPack maven repo and the layer dependency to the output
-     * build file ({@code build.gradle} — Loom's Groovy template). Both are
-     * prefixed with {@link #LAYER_COMMENT}. Idempotent: no-op when the
-     * dependency line is already present.
+     * Adds the layer dependency to the output build file
+     * ({@code build.gradle} — Loom's Groovy template), prefixed with
+     * {@link #LAYER_COMMENT}. Idempotent: no-op when the dependency line is
+     * already present.
+     *
+     * <p>When {@code useLocalLayer}, the source is the local Maven repo
+     * ({@code mavenLocal()}) and the dependency uses the local version — a
+     * fast dev loop with {@code publishToMavenLocal}, avoiding a JitPack
+     * rebuild wait. Otherwise (default) JitPack is used with the remote
+     * release version.
      */
-    private void wireLayerIntoBuild(Path outputDir) {
+    private void wireLayerIntoBuild(Path outputDir, Config config) {
         Path buildFile = outputDir.resolve("build.gradle");
         if (!Files.isRegularFile(buildFile)) {
             // Fall back to Kotlin DSL name if a Groovy template is absent.
@@ -191,13 +204,21 @@ public final class TransformStage implements Stage {
         }
         try {
             String text = Files.readString(buildFile, StandardCharsets.UTF_8);
-            if (text.contains(LAYER_DEPENDENCY)) {
+            boolean local = config.useLocalLayerOrFalse();
+            String depCoord = "com.github.ftinclarp:MTN-forge-layer:"
+                    + (local ? config.effectiveLocalLayerVersion() : config.effectiveRemoteLayerVersion());
+            if (text.contains(depCoord)) {
                 return; // already wired
             }
-            String repoBlock = LAYER_COMMENT + "\n\tmaven { url = \"https://jitpack.io\" }";
-            String depBlock = LAYER_COMMENT + "\n\tmodImplementation \"" + LAYER_DEPENDENCY + "\"";
+            String repoBlock;
+            if (local) {
+                repoBlock = LAYER_COMMENT + "\n\tmavenLocal()";
+            } else {
+                repoBlock = LAYER_COMMENT + "\n\tmaven { url = \"https://jitpack.io\" }";
+            }
+            String depBlock = LAYER_COMMENT + "\n\tmodImplementation \"" + depCoord + "\"";
             String warped = text;
-            if (!text.contains(LAYER_JITPACK_URL)) {
+            if (!text.contains(LAYER_JITPACK_URL) && !text.contains("mavenLocal()")) {
                 warped = insertAfterBlockLine(warped, "repositories {", repoBlock);
             }
             warped = insertAfterBlockLine(warped, "dependencies {", depBlock);

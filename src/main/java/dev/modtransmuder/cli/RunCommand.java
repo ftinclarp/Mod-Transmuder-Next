@@ -274,7 +274,10 @@ public final class RunCommand implements Callable<Integer> {
                 raw.cacheDir(),
                 raw.timeoutSeconds(),
                 raw.templateSha256(),
-                raw.verbose());
+                raw.verbose(),
+                raw.useLocalLayer(),
+                raw.localLayerVersion(),
+                raw.remoteLayerVersion());
     }
 
     private JsonNode readRewriteDataFile() {

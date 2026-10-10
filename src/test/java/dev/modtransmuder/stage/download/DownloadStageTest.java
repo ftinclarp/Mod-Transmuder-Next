@@ -43,7 +43,7 @@ class DownloadStageTest {
         Config config = new Config(
                 URL, "out", "in",
                 new ObjectMapper().createArrayNode(), true,
-                cacheDir.toString(), null, sha256, null);
+                cacheDir.toString(), null, sha256, null, null, null, null);
         return new PipelineContext(config, dev.modtransmuder.util.PathResolver.resolve(config),
                 new Logger(), false);
     }
