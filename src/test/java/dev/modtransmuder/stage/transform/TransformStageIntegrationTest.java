@@ -97,6 +97,72 @@ class TransformStageIntegrationTest {
         assertFalse(build.contains("jitpack"), "local mode must not emit JitPack: " + build);
     }
 
+    @Test
+    void generatesResourceFilesForRegisteredBlockAndItem() throws IOException {
+        Path modRoot = tmp.resolve("in-mod");
+        Path outResources = tmp.resolve("out-res");
+        Files.createDirectories(modRoot.resolve("src/main/resources/assets/mtnexample/lang"));
+        Files.createDirectories(modRoot.resolve("src/main/resources/assets/mtnexample/textures/blocks"));
+        Files.createDirectories(modRoot.resolve("src/main/resources/assets/mtnexample/textures/items"));
+
+        Path javaDir = modRoot.resolve("src/main/java");
+        Files.createDirectories(javaDir);
+        Files.writeString(javaDir.resolve("BlockReg.java"),
+                "class BlockReg { void x() { GameRegistry.registerBlock(block, \"myblock\"); } }");
+        Files.writeString(javaDir.resolve("ItemReg.java"),
+                "class ItemReg { void x() { GameRegistry.registerItem(item, \"myitem\"); } }");
+
+        Path legacyBlock = modRoot.resolve("src/main/resources/assets/mtnexample/textures/blocks/legacy.png");
+        Files.createDirectories(legacyBlock.getParent());
+        Files.write(legacyBlock, new byte[]{1, 2, 3});
+        Files.writeString(modRoot.resolve("src/main/resources/assets/mtnexample/lang/en_US.lang"),
+                "item.myitem.name=My Item\n"
+                        + "tile.myblock.name=My Block\n"
+                        + "item.unknown.name=Keep Me\n"
+                        + "# comment\n"
+                        + "\n"
+                        + "other.thing=blah\n");
+
+        ResourceGenerator.ResourceStats stats =
+                ResourceGenerator.generate(modRoot, javaDir, outResources, "mtnexample");
+        assertEquals(2, stats.textures(), "one fallback block + one fallback item texture");
+        assertEquals(3, stats.models(), "2 block models + 1 item model");
+        assertEquals(1, stats.blockstates(), "1 blockstate");
+        assertEquals(4, stats.langKeys(), "4 non-comment lang entries");
+
+        // blockstates
+        assertTrue(Files.isRegularFile(outResources.resolve("assets/mtnexample/blockstates/myblock.json")));
+        // block model + block item model
+        assertTrue(Files.isRegularFile(outResources.resolve("assets/mtnexample/models/block/myblock.json")));
+        assertTrue(Files.isRegularFile(outResources.resolve("assets/mtnexample/models/item/myblock.json")));
+        // item model
+        assertTrue(Files.isRegularFile(outResources.resolve("assets/mtnexample/models/item/myitem.json")));
+        // textures (fallback PNGs because input had none for these)
+        assertTrue(Files.isRegularFile(outResources.resolve("assets/mtnexample/textures/block/myblock.png")));
+        assertTrue(Files.isRegularFile(outResources.resolve("assets/mtnexample/textures/item/myitem.png")));
+        // lang json
+        assertTrue(Files.isRegularFile(outResources.resolve("assets/mtnexample/lang/en_us.json")));
+
+        // legacy folder renamed (plural -> singular), content preserved
+        assertTrue(Files.isRegularFile(outResources.resolve("assets/mtnexample/textures/block/legacy.png")));
+        assertFalse(Files.exists(outResources.resolve("assets/mtnexample/textures/blocks")));
+
+        // model content sanity
+        String blockModel = Files.readString(outResources.resolve("assets/mtnexample/models/block/myblock.json"));
+        assertTrue(blockModel.contains("\"parent\" : \"block/cube_all\""));
+        assertTrue(blockModel.contains("\"all\" : \"mtnexample:block/myblock\""));
+
+        String lang = Files.readString(outResources.resolve("assets/mtnexample/lang/en_us.json"));
+        assertTrue(lang.contains("\"item.mtnexample.myitem\" : \"My Item\""),
+                "mapped item name key, got: " + lang);
+        assertTrue(lang.contains("\"block.mtnexample.myblock\" : \"My Block\""),
+                "mapped tile->block name key, got: " + lang);
+        assertTrue(lang.contains("\"item.unknown.name\" : \"Keep Me\""),
+                "unmappable key must be kept verbatim, got: " + lang);
+        assertTrue(lang.contains("\"other.thing\" : \"blah\""),
+                "non item/tile key kept, got: " + lang);
+    }
+
     /** Build a minimal input/out tree and run the transform stage on it. */
     private StageResult runTransform(Config config, Path inMods, Path out) throws IOException {
         // --- input: in-mods/some-mod/src/main/resources/mcmod.info (descend one level) ---

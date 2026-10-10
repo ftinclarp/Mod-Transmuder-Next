@@ -86,13 +86,18 @@ public final class TransformStage implements Stage {
 
         int copied = 0;
         copied += copyJava(modRoot, outJava);
-        copied += copyResourcesExceptMcmodInfo(modRoot, outResources);
 
         // 4c — rewrite Forge imports in the copied Java files.
         int rewritten = rewriteJavaImports(outJava);
 
         // 4c' — discover the @Mod-annotated class in the copied sources.
         String modClassName = discoverModClass(outJava);
+
+        // 4c'' — resource generation (copies resources with legacy-folder
+        // rename, writes models/blockstates/textures/lang for registered names).
+        ResourceGenerator.ResourceStats resources =
+                ResourceGenerator.generate(modRoot, outJava, outResources, info.modid());
+        String resourcesLine = ResourceGenerator.summary(resources);
 
         // 4d — wire the layer into the output build (local or JitPack per config).
         wireLayerIntoBuild(outputDir, ctx.config());
@@ -101,7 +106,7 @@ public final class TransformStage implements Stage {
         writeFabricModJson(outResources.resolve("fabric.mod.json"), info, modClassName);
 
         String message = "modid=" + info.modid() + " copies=" + copied
-                + " rewritten=" + rewritten + " layersWired=1";
+                + " rewritten=" + rewritten + " layersWired=1 " + resourcesLine;
         return new TransformSummary(message);
     }
 
@@ -110,12 +115,6 @@ public final class TransformStage implements Stage {
     private int copyJava(Path modRoot, Path outJava) {
         Path inJava = modRoot.resolve("src/main/java");
         return copyTree(inJava, outJava);
-    }
-
-    /** Copies {@code src/main/resources} files, except {@code mcmod.info}. */
-    private int copyResourcesExceptMcmodInfo(Path modRoot, Path outResources) {
-        Path inResources = modRoot.resolve("src/main/resources");
-        return copyTreeFiltered(inResources, outResources, p -> !p.getFileName().toString().equals("mcmod.info"));
     }
 
     /**
