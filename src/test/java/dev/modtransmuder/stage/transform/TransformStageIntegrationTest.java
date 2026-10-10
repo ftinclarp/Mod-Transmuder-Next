@@ -80,10 +80,11 @@ class TransformStageIntegrationTest {
         assertTrue(fabric.contains("mtn.forge_layer.FabricEntry"),
                 "entrypoint must point at the layer's FabricEntry");
 
-        // build wired with JitPack + layer dependency
+        // build wired with JitPack + layer dependency (as a mod, so Loom remaps it to the dev namespace)
         String build = Files.readString(buildFile);
         assertTrue(build.contains("https://jitpack.io"), "JitPack maven repo missing");
-        assertTrue(build.contains("com.github.ftinclarp:MTN-forge-layer:v1.0.1"), "layer dependency missing");
+        assertTrue(build.contains("modImplementation \"com.github.ftinclarp:MTN-forge-layer:v1.0.1\""),
+                "layer must be a modImplementation dependency: " + build);
     }
 
     /** Structurally assert a top-level string field exists with an expected value in a JSON file. */

@@ -187,7 +187,7 @@ public final class TransformStage implements Stage {
                 return; // already wired
             }
             String repoBlock = LAYER_COMMENT + "\n\tmaven { url = \"https://jitpack.io\" }";
-            String depBlock = LAYER_COMMENT + "\n\timplementation \"" + LAYER_DEPENDENCY + "\"";
+            String depBlock = LAYER_COMMENT + "\n\tmodImplementation \"" + LAYER_DEPENDENCY + "\"";
             String warped = text;
             if (!text.contains(LAYER_JITPACK_URL)) {
                 warped = insertAfterBlockLine(warped, "repositories {", repoBlock);
