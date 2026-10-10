@@ -47,7 +47,7 @@ public final class TransformStage implements Stage {
      * both as {@link Config}'s default and when emitting the dependency into
      * the output build file.
      */
-    public static final String DEFAULT_REMOTE_LAYER_VERSION = "v1.0.5";
+    public static final String DEFAULT_REMOTE_LAYER_VERSION = "v1.0.6";
 
     /** Entrypoint key in the generated fabric.mod.json naming the @Mod class. */
     static final String FORGE_MOD_CLASS_ENTRYPOINT = "mtn:forge-mod-class";
@@ -266,7 +266,13 @@ public final class TransformStage implements Stage {
         root.put("environment", "*");
 
         ObjectNode entrypoints = root.putObject("entrypoints");
-        entrypoints.putArray("main").add("mtn.forge_layer.FabricEntry");
+        // The layer mod (MTN-forge-layer) already declares "main":
+        // ["mtn.forge_layer.FabricEntry"] in its own fabric.mod.json, so
+        // Fabric calls FabricEntry.onInitialize once — from the layer mod.
+        // getEntrypointContainers() enumerates all mods, so the ported mod's
+        // mtn:forge-mod-class entrypoint is visible regardless of which mod
+        // declares the main entrypoint. Emitting "main" here would double
+        // dispatch the Forge lifecycle.
         ArrayNode forgeMods = entrypoints.putArray(FORGE_MOD_CLASS_ENTRYPOINT);
         if (modClassName != null && !modClassName.isBlank()) {
             forgeMods.add(modClassName);

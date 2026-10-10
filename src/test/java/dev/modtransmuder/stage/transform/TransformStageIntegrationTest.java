@@ -62,10 +62,10 @@ class TransformStageIntegrationTest {
         JsonAssert.assertField(fabric, "id", "mtnexample");
         JsonAssert.assertField(fabric, "name", "MTN Example");
         JsonAssert.assertField(fabric, "version", "1.0");
-        assertTrue(fabric.contains("mtn.forge_layer.FabricEntry"),
-                "entrypoint must point at the layer's FabricEntry");
         assertTrue(fabric.contains("\"mtn:forge-mod-class\" : [ \"com.mtn.example.ExampleMod\" ]"),
                 "fabric.mod.json must name the @Mod class under mtn:forge-mod-class: " + fabric);
+        assertFalse(fabric.contains("\"main\""),
+                "ported mod must NOT declare a main entrypoint (layer owns it): " + fabric);
 
         // default (use_local_layer absent/false): JitPack + default remote layer version
         String build = Files.readString(out.resolve("build.gradle"));
