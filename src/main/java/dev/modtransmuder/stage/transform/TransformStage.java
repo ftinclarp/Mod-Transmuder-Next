@@ -47,7 +47,7 @@ public final class TransformStage implements Stage {
      * both as {@link Config}'s default and when emitting the dependency into
      * the output build file.
      */
-    public static final String DEFAULT_REMOTE_LAYER_VERSION = "v2.1.0";
+    public static final String DEFAULT_REMOTE_LAYER_VERSION = "v2.2.0";
 
     /**
      * Single source of truth for the Minecraft API layer's remote (JitPack)

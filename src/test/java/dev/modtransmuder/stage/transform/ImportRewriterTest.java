@@ -63,4 +63,20 @@ class ImportRewriterTest {
                 ImportRewriter.rewriteFml("System.out.println(\"hello\");"));
         assertFalse(ImportRewriter.rewriteFml("import java.util.List;").contains("mtn.forge_layer"));
     }
+
+    @Test
+    void preservesRealMojmapFriendlyByteBuf() {
+        // net.minecraft.network.FriendlyByteBuf is Mojmap; the output project is Yarn
+        // and consumes the (Mojmap) forge-layer, so the Mojmap name is rewritten to
+        // the Yarn name the output project + layer's remapped IMessage use.
+        assertEquals(
+                "import net.minecraft.network.PacketByteBuf;",
+                ImportRewriter.rewriteFml("import net.minecraft.network.FriendlyByteBuf;"));
+    }
+
+    @Test
+    void stillRewritesOtherNetMinecraftClasses() {
+        assertTrue(ImportRewriter.rewriteFml("import net.minecraft.item.ItemStack;")
+                .contains("mtn.minecraft_layer.net.minecraft.item.ItemStack"));
+    }
 }
