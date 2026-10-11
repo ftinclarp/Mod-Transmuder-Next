@@ -47,14 +47,14 @@ public final class TransformStage implements Stage {
      * both as {@link Config}'s default and when emitting the dependency into
      * the output build file.
      */
-    public static final String DEFAULT_REMOTE_LAYER_VERSION = "v2.2.0";
+    public static final String DEFAULT_REMOTE_LAYER_VERSION = "v2.3.0";
 
     /**
      * Single source of truth for the Minecraft API layer's remote (JitPack)
      * version, used both as {@link Config}'s default and when emitting the
      * dependency into the output build file.
      */
-    public static final String DEFAULT_REMOTE_MINECRAFT_LAYER_VERSION = "v1.0.0";
+    public static final String DEFAULT_REMOTE_MINECRAFT_LAYER_VERSION = "v1.1.0";
 
     /** Entrypoint key in the generated fabric.mod.json naming the @Mod class. */
     static final String FORGE_MOD_CLASS_ENTRYPOINT = "mtn:forge-mod-class";
