@@ -340,6 +340,40 @@ This section records long-term strategy and known limitations.
 It is NOT the v1 scope. v1 is what the pipeline currently does:
 translate sources, wire layers, generate resources, validate build.
 
+## Current port state (after batch 3)
+
+Layer coverage: Bucket A is empty. All layer-tail classes and
+methods Iron Chest needs are present as stubs (with TODO(mtn-layer)
+markers).
+
+Remaining for a full Iron Chest port: Bucket B, which is not
+layer-tail. It requires real implementations, not stubs:
+
+  - Client rendering (47 errors): R4b (TileEntitySpecialRenderer
+    -> Fabric BlockEntityRenderer) + R4c (ModelChest + GL11 ->
+    BufferBuilder).
+  - Network (16 errors): Packet + FMLProxyPacket +
+    FMLEmbeddedChannel -> Fabric networking.
+  - OreDictionary (4 errors): -> Fabric tags.
+  - MinecraftForge event bus (2 errors): -> Fabric callbacks (R5).
+
+None of these can be stubbed meaningfully. They are separate
+modules, to be tackled one at a time, not as a "layer batch".
+
+Decision pending: which module to start next.
+
+### Technical debt: ForgeDirection placement
+
+The current placement of ForgeDirection in minecraft-layer (at the
+literal net.minecraftforge.common.util path) is a workaround so that
+Block's rotateBlock/getValidRotations and World.isSideSolid can
+compile without minecraft-layer depending on forge-layer. It works
+but is semantically wrong.
+
+TODO: consider moving ForgeDirection back to forge-layer and routing
+Block/World methods through an interface, if the layering ever needs
+to be strict.
+
 ### Modes of porting
 
 MTN's v1 approach is called Mode T (source translation):
