@@ -21,10 +21,8 @@ public record ForgeModInfo(
 
     public ForgeModInfo {
         authors = List.copyOf(authors);
-        if (modid == null || modid.isBlank()
-                || name == null || name.isBlank()
-                || version == null || version.isBlank()) {
-            throw new IllegalArgumentException("ForgeModInfo requires non-blank modid/name/version");
-        }
+        // Lengths are not validated: McmodInfoParser defaults missing fields to
+        // empty strings/lists so that unusual-but-parseable mcmod.info files do
+        // not fail the transform stage.
     }
 }

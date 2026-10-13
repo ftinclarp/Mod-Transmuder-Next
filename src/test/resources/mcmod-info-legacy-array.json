@@ -1,0 +1,21 @@
+[
+{
+  "modid": "examplelegacy",
+  "name": "Example Legacy",
+  "description": "Synthetic legacy-array mcmod.info fixture.",
+  "version": "1.0",
+  "mcversion": "1.7.10",
+  "url": "",
+  "updateUrl": "",
+  "authors": [
+    "Test Author"
+  ],
+  "credits": "",
+  "logoFile": "",
+  "screenshots": [
+  ],
+  "parent": "",
+  "dependencies": [
+  ]
+}
+]
