@@ -82,8 +82,10 @@ public final class TransformStage implements Stage {
         Path inputDir = ctx.paths().inputDir().toAbsolutePath().normalize();
         Path outputDir = ctx.paths().outputDir().toAbsolutePath().normalize();
 
-        // 4a — parse input metadata (mod discovery + parse).
+        // 4a — resolve the actual mod dir from the (possibly container) input,
+        // then parse input metadata (mod discovery + parse).
         Path modRoot = resolveModRoot(inputDir);
+        ctx.setResolvedInputDir(modRoot);
         ForgeModInfo info = McmodInfoParser.parse(modRoot.resolve("src/main/resources/mcmod.info"));
 
         // 4b — copy sources, removing the template's example package.
@@ -332,26 +334,47 @@ public final class TransformStage implements Stage {
     // ---------------- mod discovery ----------------
 
     /**
-     * {@code inputDir} if it directly holds {@code src/main/resources/mcmod.info},
-     * else the first direct subdirectory that does. Fails if none is found.
+     * Resolves the actual mod directory from {@code inputDir}, which may be
+     * either a mod directory itself or a container holding mod subdirectories
+     * (config {@code in-mods} → one of {@code in-mods/<mod>}).
+     *
+     * <p>When {@code inputDir} itself looks like a mod (has
+     * {@code src/main/resources/mcmod.info}, {@code src/main/java/}, or
+     * {@code src/api/java/}), it is used directly. Otherwise the direct
+     * subdirectories that look like a mod are considered:
+     * exactly one → that directory; zero → clear failure; more than one →
+     * clear failure listing the candidates.
      */
-    private static Path resolveModRoot(Path inputDir) {
-        if (hasMcmodInfo(inputDir)) {
-            return inputDir;
+    static Path resolveModRoot(Path inputDir) {
+        Path abs = inputDir.toAbsolutePath().normalize();
+        if (looksLikeMod(abs)) {
+            return abs;
         }
         List<Path> subdirs;
-        try (var stream = Files.list(inputDir)) {
+        try (var stream = Files.list(abs)) {
             subdirs = stream.filter(Files::isDirectory).sorted(Comparator.comparing(Path::toString)).toList();
         } catch (IOException e) {
-            throw new TransformException("cannot scan input dir " + inputDir + ": " + e.getMessage(), e);
+            throw new TransformException("cannot scan input dir " + abs + ": " + e.getMessage(), e);
         }
-        for (Path dir : subdirs) {
-            if (hasMcmodInfo(dir)) {
-                return dir;
-            }
+        List<Path> mods = subdirs.stream().filter(TransformStage::looksLikeMod).toList();
+        if (mods.isEmpty()) {
+            throw new TransformException("no mod found under " + abs);
         }
-        throw new TransformException("no Forge mod found under " + inputDir
-                + " (expected src/main/resources/mcmod.info)");
+        if (mods.size() > 1) {
+            String names = mods.stream()
+                    .map(p -> p.getFileName().toString())
+                    .reduce((a, b) -> a + ", " + b)
+                    .orElse("");
+            throw new TransformException("multiple mods found under " + abs + ": " + names
+                    + ". Leave one, or point transmudation_input directly at the mod.");
+        }
+        return mods.get(0);
+    }
+
+    private static boolean looksLikeMod(Path root) {
+        return hasMcmodInfo(root)
+                || Files.isDirectory(root.resolve("src/main/java"))
+                || Files.isDirectory(root.resolve("src/api/java"));
     }
 
     private static boolean hasMcmodInfo(Path root) {

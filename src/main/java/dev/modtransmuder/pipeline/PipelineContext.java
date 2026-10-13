@@ -17,6 +17,7 @@ public final class PipelineContext {
     private final ResolvedPaths paths;
     private final Logger logger;
     private Path lastZipPath;
+    private Path resolvedInputDir;
     private final boolean keepStaging;
 
     public PipelineContext(Config config, ResolvedPaths paths, Logger logger, boolean keepStaging) {
@@ -49,6 +50,20 @@ public final class PipelineContext {
 
     public void setLastZipPath(Path lastZipPath) {
         this.lastZipPath = lastZipPath;
+    }
+
+    /**
+     * Absolute path of the actual mod directory, resolved from the possibly
+     * container-style {@code transmudation_input} by stage-transform.
+     * {@code null} until transform has run. All stages must use this rather
+     * than the raw config value.
+     */
+    public Path resolvedInputDir() {
+        return resolvedInputDir;
+    }
+
+    public void setResolvedInputDir(Path resolvedInputDir) {
+        this.resolvedInputDir = resolvedInputDir;
     }
 
     public boolean keepStaging() {
