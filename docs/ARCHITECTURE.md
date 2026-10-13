@@ -331,3 +331,259 @@ No open architecture items remain; implementation can start from any stage.
   the owner review), each with a one-sentence consequence; stripped the old
   open-questions framing.
 - Version title updated in the document header.
+
+---
+
+## Strategic decisions and known gaps
+
+This section records long-term strategy and known limitations.
+It is NOT the v1 scope. v1 is what the pipeline currently does:
+translate sources, wire layers, generate resources, validate build.
+
+### Modes of porting
+
+MTN's v1 approach is called Mode T (source translation):
+
+  Mode T — Source translation (current):
+    Input:  mod sources (open-source mods).
+    Tool:   regex/AST rewrite of imports and calls, javac.
+    Output: rewritten sources -> compiled ported jar.
+    Pros:   simple, debuggable, compile-time errors.
+    Cons:   requires sources.
+
+Three additional modes are acknowledged but NOT part of v1:
+
+  Mode B — Offline Mixin/ASM translation:
+    Read Mixin classes / Forge ASM transformers from the mod,
+    translate to Fabric-compatible Mixin classes at port time.
+    Covers simple @Inject / @Redirect / @ModifyConstant.
+    Partial coverage; @Overwrite and bytecode tricks need manual work.
+
+  Mode C — Targeted class baking:
+    Extract only the Minecraft classes that a mod patches via
+    coremod/ASM. Replace their imports with layer packages, apply
+    patches, compile, substitute the layer's dummy class.
+    Dependency graph tends to explode; runtime compilation is heavy.
+    Experimental. Nobody has done this publicly.
+
+  Mode X — Runtime bytecode transformation (Sinytra-style):
+    Load real Forge jar as-is in an isolated classloader; provide
+    Forge API shims; use Mixin/ASM to intercept calls.
+    Comparable to Sinytra Connector for 1.18+.
+    Different project, team-scale, years of work.
+    NOT part of MTN. See "Fundamental limits" below.
+
+### Transformers (separate repos, not part of core)
+
+  MTN-mixin-transformer:
+    Translates UniMixins 1.7.10 Mixin classes to Fabric 1.21.1 Mixin.
+    - Read @Mixin / @Inject / @Redirect / @At annotations.
+    - Translate MCP names -> Yarn/Mojmap.
+    - Translate method descriptors and pointcuts.
+    - Generate Fabric-compatible Mixin + mixins.<modid>.json.
+    Supports: @Inject, @Redirect, @ModifyConstant.
+    Partial: @Overwrite with large bodies, bytecode tricks.
+
+  MTN-lwjgl-transformer:
+    Translates LWJGL 2 calls (Forge 1.7.10) to LWJGL 3 / Fabric
+    render API (1.21.1).
+    - GL11.glBegin/glVertex/glEnd -> BufferBuilder.
+    - glPushMatrix/glTranslate/glRotate -> PoseStack.
+    - Display.create -> no-op (Fabric handles windowing).
+    - Keyboard/Mouse -> Fabric input API.
+    Partial: fixed-function pipeline (lighting, fog) needs manual
+    rewrite or shaders.
+
+  MTN-fake-api (mono-repo, subproject per API):
+    Runtime adapters for third-party APIs, distributed as standalone
+    Fabric mods. User installs only the ones they need.
+    Examples:
+      - NEI -> JEI / EMI / REI (separate subprojects per target).
+      - WAILA -> Jade.
+      - Baubles -> Trinkets.
+      - Inventory Tweaks -> Quark / Inventorio / no-op.
+    Each subproject is a separate Fabric mod with its own
+    fabric.mod.json and its own JitPack tag.
+
+### Pipeline order
+
+When porting a mod that uses Mixin and/or LWJGL:
+
+  1. transform (base port)
+       - rewrite imports: net.minecraft.* -> mtn.minecraft_layer.*,
+         cpw.mods.fml.* -> mtn.forge_layer.*
+       - copy resources, generate models/textures/lang
+       - generate fabric.mod.json
+
+  2. MTN-lwjgl-transformer (if the mod uses LWJGL directly)
+       - rewrite GL11.* / Display.* / Keyboard.* / Mouse.* calls to
+         Fabric render API
+       - must run BEFORE Mixin because Mixin may inject into methods
+         that originally contained LWJGL calls
+
+  3. layer wiring
+       - ported mod depends on MTN-forge-layer + MTN-minecraft-layer
+       - fabric.mod.json declares this dependency
+
+  4. MTN-mixin-transformer (if the mod uses Mixin)
+       - translate Mixin classes, generate Fabric Mixin + json
+       - register in fabric.mod.json
+       - runs LAST so Mixin patches apply to already translated code
+
+  5. assemble and validate (gradle build)
+
+### Performance budget
+
+Target (not guarantee) for a medium mod on a warm Gradle cache:
+
+  transform (source rewriting):
+    Small mod (<100 files):   5-15 s
+    Medium mod (100-500):     15-60 s
+    Large mod (>500):         1-5 min
+  MTN-lwjgl-transformer:     +5-15 s
+  MTN-mixin-transformer:     +10-30 s (more for hundreds of Mixins)
+  gradle build (cold loom):  5-15 min (first time only)
+  gradle build (warm):       30-120 s
+
+Not in the budget: first-time loom setup, runtime decompilation
+(Mode X / Mode 1), full Minecraft bake.
+
+### Known gaps and their plans
+
+Coverage: ~95% of known gaps have a plan. The rest are fundamental
+limits or require a separate project.
+
+  Gaps with a plan (ordered by difficulty):
+
+  1. Recipes:
+     CraftingManager.addRecipe -> generate JSON recipe files
+     in data/<modid>/recipes/. Implemented via transform +
+     a new RecipeRewriter stage.
+
+  2. OreDictionary:
+     OreDictionary.registerOre("name", item) -> JSON tag in
+     data/<modid>/tags/items/. Mapping via a name dictionary
+     (ingotCopper -> c:ingots/copper). Implemented in
+     ResourceGenerator.
+
+  3. Config:
+     Forge Configuration -> JSON/TOML + a layer adapter that reads
+     it. Optional GUI via ClothConfig/ModMenu.
+
+  4. Keybindings:
+     KeyBinding delegates to KeyBindingHelper.registerKeyBinding.
+     Forge -> Fabric key codes: 1:1.
+
+  5. Commands:
+     ICommand -> Fabric Brigadier command. Layer provides a
+     CommandBase wrapper for argument parsing.
+
+  6. Access Transformers:
+     Parse *_at.cfg -> generate .accesswidener. Names via mapping.
+
+  7. World generation:
+     IWorldGenerator -> Fabric BiomeModification + JSON features.
+     Ore features: simple mapping. Structures: complex mapping
+     (Jigsaw). Seed compatibility not guaranteed.
+
+  8. Entity + AI:
+     EntityRegistry.registerModEntity -> Registry.register(
+     Registries.ENTITY_TYPE, ...). EntityAIBase -> vanilla/Fabric
+     Goal. Mapping of AI behaviors via dictionary.
+
+  9. Server-side APIs:
+     MinecraftServer / ServerConfigurationManager -> layer wrappers
+     over Fabric equivalents.
+
+  10. Client-side APIs:
+      ClientRegistry / FMLClientHandler -> wrappers over
+      ClientModInitializer / MinecraftClient. Custom models via
+      ModelLoadingPlugin.
+
+  11. Reflection (ObfuscationReflectionHelper):
+      Transformer replaces reflection with MCP names by direct
+      calls via Fabric mappings. Complex but works for typical
+      cases.
+
+  12. Fluids:
+      FluidRegistry.registerFluid / BlockFluidBase -> Fabric
+      Fluid / FlowableFluid / FluidBlock. Fluid rendering separate.
+
+  13. Energy systems:
+      Fake-api for each system (IC2 EU -> Fabric Energy,
+      BC MJ -> Fabric Energy, RF -> Fabric Energy). Ratios:
+      1 EU ~ 4 RF, 1 MJ ~ 10 RF.
+
+  14. Custom rendering (TESR):
+      Partial via MTN-lwjgl-transformer (immediate mode ->
+      BufferBuilder). Partial manual (fixed pipeline -> shaders).
+      Simple TESRs work; complex (shaders, post-processing) need
+      manual rewrite. This is R4 + LWJGL transformer scope.
+
+  15. Multiblocks and structures:
+      No unified plan. Each mod does its own logic via TileEntity.
+      Layer provides the TileEntity API; structure verification is
+      the mod's responsibility. Works only via manual patches.
+
+  16. Mixin / coremods:
+      MTN-mixin-transformer handles simple patches. Complex patches
+      need manual translation. See Mode B.
+
+  17. Mod dependencies:
+      Dependency graph + recursive porting. fake-api for
+      integrations. Works, but slow for large ecosystems.
+
+  18. Dynamic class loading:
+      Custom classloader per ported mod that resolves dynamic
+      Class.forName calls. Complex, fragile. Handled case-by-case.
+
+  19. Data fixers:
+      If the mod's data is plain NBT, Fabric usually handles it.
+      Complex data needs manual migration via DataFixerUpper.
+
+  20. Texture atlas and models:
+      Mostly done in ResourceGenerator. Needs finishing for blocks
+      with custom models. R3c/R4 scope.
+
+  Fundamental limits (no plan):
+
+  - Full Minecraft rewrites (TFC-style): would require rewriting
+    Minecraft itself, not a porting tool.
+  - Native code heavily coupled to 1.7.10 OpenGL: needs rewriting
+    in C++ or via shaders.
+  - Mods whose behavior fundamentally depends on 1.7.10 bytecode
+    tricks: not expressible in a layer.
+
+### Fundamental limits of layer-based translation
+
+Layer-based translation works when the mod uses public Forge /
+Minecraft API as intended. It fails when the mod:
+
+  - Patches Minecraft via ASM / Mixin / coremod (needs Mode B, X).
+  - Uses reflection into internal Minecraft APIs (needs per-case
+    emulation or bytecode transform).
+  - Depends on initialization order between mods (needs manual
+    patch).
+  - Relies on bytecode-specific Minecraft behavior (needs Mode X).
+
+Estimated coverage: 80-90% of 1.7.10 mods.
+The remaining 10-20% require transformers, fake-api, manual
+patches, or a different project entirely.
+
+MTN is honest about these limits. It does not promise 100%
+coverage.
+
+### Agent swarm (idea, not planned)
+
+For very large mods (GT5, Thaumcraft, IC2) a future idea is an
+"agent swarm" that translates classes in parallel with automatic
+validation:
+
+  - N agents each translate one class independently.
+  - Automatic validation (compile + tests + behavior diff).
+  - Escalation to human on failure.
+  - Open questions: coordination, validation methodology, token
+    cost.
+
+This is a separate project (MTN-factory or similar). Not part of
+MTN. Requires the base pipeline (Mode T) to be stable first.
