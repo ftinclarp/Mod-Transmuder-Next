@@ -167,6 +167,42 @@ class TransformStageIntegrationTest {
                 "non item/tile key kept, got: " + lang);
     }
 
+    @Test
+    void copiesAllJavaSourceRoots() throws IOException {
+        Path modRoot = tmp.resolve("in-mod");
+        Path out = tmp.resolve("out");
+        Config config = new Config(
+                "https://example.com/template.zip", out.toString(), modRoot.toString(),
+                new ObjectMapper().createArrayNode(), true, null, null, null, null,
+                null, null, null, null, null);
+
+        // two Java source roots: main + api
+        Files.createDirectories(modRoot.resolve("src/main/java/com/example"));
+        Files.createDirectories(modRoot.resolve("src/api/java/exampleapi"));
+        Files.createDirectories(modRoot.resolve("src/main/resources"));
+        Files.writeString(modRoot.resolve("src/main/java/A.java"), "class A {}\n");
+        Files.writeString(modRoot.resolve("src/api/java/B.java"), "class B {}\n");
+        Files.writeString(modRoot.resolve("src/main/resources/mcmod.info"), MC_MOD_INFO);
+
+        // minimal output tree (same shape as runTransform's)
+        Path buildFile = out.resolve("build.gradle");
+        Files.createDirectories(out.resolve("src/main/java/com/example"));
+        Files.createDirectories(out.resolve("src/main/resources"));
+        Files.writeString(buildFile, "repositories {\n}\n\ndependencies {\n}\n");
+        Files.writeString(out.resolve("src/main/resources/fabric.mod.json"), "{}\n");
+        Files.writeString(out.resolve("src/main/java/com/example/ExampleMod.java"),
+                "package com.example;\n\nimport net.fabricmc.api.ModInitializer;\npublic class ExampleMod {}\n");
+
+        PipelineContext ctx = new PipelineContext(config, PathResolver.resolve(config), new Logger(), false);
+        StageResult result = new TransformStage().run(ctx);
+        assertEquals(Status.SUCCESS, result.status(), result.message());
+
+        assertTrue(Files.isRegularFile(out.resolve("src/main/java/A.java")),
+                "src/main/java/A.java must be copied");
+        assertTrue(Files.isRegularFile(out.resolve("src/main/java/B.java")),
+                "src/api/java/B.java must be copied under the merged output java root");
+    }
+
     /** Build a minimal input/out tree and run the transform stage on it. */
     private StageResult runTransform(Config config, Path inMods, Path out) throws IOException {
         // --- input: mod contents directly under inMods (no container nesting) ---

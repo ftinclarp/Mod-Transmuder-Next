@@ -2,6 +2,7 @@ package dev.modtransmuder.stage.transform;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import dev.modtransmuder.error.TransformException;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -12,8 +13,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -112,17 +115,96 @@ final class ResourceGenerator {
 
     // ---------------- 2. resource copy + rename ----------------
 
+    /**
+     * Copies every {@code src/<name>/resources} root into {@code outResources},
+     * merging them. Legacy {@code textures/blocks|items} folders are renamed to
+     * the Fabric singular layout. Fails loudly when two roots produce the same
+     * output path.
+     */
     private static void copyResourcesWithRename(Path modRoot, Path outResources, String modid) {
-        Path inResources = modRoot.resolve("src/main/resources");
-        if (!Files.isDirectory(inResources)) {
+        Path src = modRoot.resolve("src");
+        if (!Files.isDirectory(src)) {
             return;
         }
         String blocksLegacy = "assets/" + modid + "/textures/blocks/";
         String itemsLegacy = "assets/" + modid + "/textures/items/";
-        try (var walk = Files.walk(inResources)) {
+        for (Path root : resourceRoots(modRoot)) {
+            String name = resourceRootName(root);
+            for (ResourceFile file : copyableResourceFiles(root, modid, blocksLegacy, itemsLegacy)) {
+                Path target = outResources.resolve(file.targetRel());
+                try {
+                    if (Files.exists(target)) {
+                        throw new TransformException(
+                                "resource collision between src/" + name + "/resources and another source root: "
+                                        + file.targetRel());
+                    }
+                    Files.createDirectories(target.getParent());
+                    Files.copy(file.source(), target);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }
+        }
+    }
+
+    /** How many resource files each {@code src/<name>} root contributes, so the transform stage can log it. */
+    static java.util.Map<String, Integer> resourceRootsWithCounts(Path modRoot, String modid) {
+        java.util.Map<String, Integer> perRoot = new java.util.LinkedHashMap<>();
+        Path src = modRoot.resolve("src");
+        if (!Files.isDirectory(src)) {
+            return perRoot;
+        }
+        String blocksLegacy = "assets/" + modid + "/textures/blocks/";
+        String itemsLegacy = "assets/" + modid + "/textures/items/";
+        for (Path root : resourceRoots(modRoot)) {
+            perRoot.put(resourceRootName(root),
+                    copyableResourceFiles(root, modid, blocksLegacy, itemsLegacy).size());
+        }
+        return perRoot;
+    }
+
+    /** Every {@code src/<name>/resources} root under {@code modRoot}, sorted by name. */
+    private static List<Path> resourceRoots(Path modRoot) {
+        List<Path> roots = new java.util.ArrayList<>();
+        Path src = modRoot.resolve("src");
+        if (!Files.isDirectory(src)) {
+            return roots;
+        }
+        try (var stream = Files.list(src)) {
+            stream.filter(Files::isDirectory).sorted(java.util.Comparator.comparing(p -> p.getFileName().toString()))
+                    .forEach(sub -> {
+                        Path resDir = sub.resolve("resources");
+                        if (Files.isDirectory(resDir)) {
+                            roots.add(resDir);
+                        }
+                    });
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return roots;
+    }
+
+    private static String resourceRootName(Path resDir) {
+        return resDir.getParent() == null || resDir.getParent().getFileName() == null
+                ? "main" : resDir.getParent().getFileName().toString();
+    }
+
+    /** An input resource file mapped to its output-relative path (after rename). */
+    private record ResourceFile(Path source, String targetRel) {
+    }
+
+    /**
+     * Lists every copyable file under one resource root as {@code (source,
+     * targetRel)} pairs: all regular files except {@code mcmod.info} and
+     * {@code en_US.lang} (both handled separately), with the legacy-folder
+     * rename applied to the target relative path.
+     */
+    private static List<ResourceFile> copyableResourceFiles(Path root, String modid,
+                                                            String blocksLegacy, String itemsLegacy) {
+        List<ResourceFile> results = new java.util.ArrayList<>();
+        try (var walk = Files.walk(root)) {
             walk.filter(Files::isRegularFile).forEach(p -> {
-                String rel = toSlash(inResources.relativize(p));
-                // mcmod.info consumed elsewhere; lang converted (step 4), not copied verbatim.
+                String rel = toSlash(root.relativize(p));
                 if (p.getFileName().toString().equals("mcmod.info")
                         || rel.contains("/lang/en_US.lang")) {
                     return;
@@ -133,17 +215,12 @@ final class ResourceGenerator {
                 } else if (rel.contains(itemsLegacy)) {
                     targetRel = rel.replace(itemsLegacy, "assets/" + modid + "/textures/item/");
                 }
-                Path target = outResources.resolve(targetRel);
-                try {
-                    Files.createDirectories(target.getParent());
-                    Files.copy(p, target, StandardCopyOption.REPLACE_EXISTING);
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
+                results.add(new ResourceFile(p, targetRel));
             });
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+        return results;
     }
 
     private static String toSlash(Path path) {

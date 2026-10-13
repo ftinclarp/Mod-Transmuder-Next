@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -87,13 +88,13 @@ public final class TransformStage implements Stage {
         ctx.setResolvedInputDir(modRoot);
         ForgeModInfo info = McmodInfoParser.parse(modRoot.resolve("src/main/resources/mcmod.info"));
 
-        // 4b — copy sources, removing the template's example package.
+        // 4b — copy sources from every src/<name>/java root, removing the
+        // template's example package.
         Path outJava = outputDir.resolve("src/main/java");
         Path outResources = outputDir.resolve("src/main/resources");
         deleteTree(outJava.resolve("com/example"));
 
-        int copied = 0;
-        copied += copyJava(modRoot, outJava);
+        int copied = copyJava(ctx, modRoot, outJava);
 
         // 4c — rewrite Forge imports in the copied Java files.
         int rewritten = rewriteJavaImports(outJava);
@@ -103,6 +104,10 @@ public final class TransformStage implements Stage {
 
         // 4c'' — resource generation (copies resources with legacy-folder
         // rename, writes models/blockstates/textures/lang for registered names).
+        for (var e : ResourceGenerator.resourceRootsWithCounts(modRoot, info.modid()).entrySet()) {
+            ctx.logger().info("stage-transform: resource root src/" + e.getKey()
+                    + "/resources contributed " + e.getValue() + " file(s)");
+        }
         ResourceGenerator.ResourceStats resources =
                 ResourceGenerator.generate(modRoot, outJava, outResources, info.modid());
         String resourcesLine = ResourceGenerator.summary(resources);
@@ -120,33 +125,78 @@ public final class TransformStage implements Stage {
 
     // ---------------- 4b helpers ----------------
 
-    private int copyJava(Path modRoot, Path outJava) {
-        Path inJava = modRoot.resolve("src/main/java");
-        return copyTree(inJava, outJava);
+    /**
+     * Copies every {@code src/<name>/java} root under {@code modRoot} into
+     * {@code outJava}, preserving each root's package structure (a relative
+     * path inside the root is placed under the same relative path in the
+     * output). Logs the source roots found and the per-root file counts. Fails
+     * when the same relative output path would be produced by two different
+     * roots (e.g. {@code src/main/java/foo/A.java} and {@code src/api/java/foo/A.java}).
+     */
+    private static int copyJava(PipelineContext ctx, Path modRoot, Path outJava) {
+        List<Path> javaRoots = sourceRoots(modRoot, "java");
+        if (javaRoots.isEmpty()) {
+            ctx.logger().info("stage-transform: no Java source roots found");
+            return 0;
+        }
+        int total = 0;
+        for (Path root : javaRoots) {
+            int n = copyTreeCollisionSafe(root, outJava);
+            ctx.logger().info("stage-transform: copied " + n + " files from source root "
+                    + toSlash(modRoot.relativize(root)) + " -> " + toSlash(outJava));
+            total += n;
+        }
+        ctx.logger().info("stage-transform: found " + javaRoots.size() + " Java source root(s), "
+                + total + " files total");
+        return total;
+    }
+
+    /** Lists every {@code src/<name>/java} root under {@code modRoot}, sorted. */
+    private static List<Path> sourceRoots(Path modRoot, String kind) {
+        Path src = modRoot.resolve("src");
+        if (!Files.isDirectory(src)) {
+            return List.of();
+        }
+        List<Path> roots = new ArrayList<>();
+        try (var stream = Files.list(src)) {
+            stream.filter(Files::isDirectory).sorted(Comparator.comparing(p -> p.getFileName().toString()))
+                    .forEach(sub -> {
+                        Path kindDir = sub.resolve(kind);
+                        if (Files.isDirectory(kindDir)) {
+                            roots.add(kindDir);
+                        }
+                    });
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return roots;
     }
 
     /**
-     * Recursively copies every regular file (preserving relative paths) from
-     * {@code src} into {@code dst}. Returns the number of files copied.
+     * Copies every regular file from {@code src} into {@code dst}, preserving
+     * relative paths. When two roots would target the same output file, the
+     * second copy would overwrite — this method detects that by tracking output
+     * paths already claimed by earlier roots and failing loudly instead.
+     * Returns the number of files copied.
      */
-    private static int copyTree(Path src, Path dst) {
-        return copyTreeFiltered(src, dst, ignore -> true);
-    }
-
-    private static int copyTreeFiltered(Path src, Path dst, java.util.function.Predicate<Path> accept) {
+    private static int copyTreeCollisionSafe(Path src, Path dst) {
         if (!Files.isDirectory(src)) {
             return 0;
         }
         AtomicInteger count = new AtomicInteger();
         try (var walk = Files.walk(src)) {
             walk.filter(Files::isRegularFile)
-                    .filter(accept)
                     .forEach(p -> {
                         Path rel = src.relativize(p);
                         Path target = dst.resolve(rel);
                         try {
+                            if (Files.exists(target)) {
+                                throw new TransformException("collision while copying source roots: '" + rel
+                                        + "' already exists in " + dst + "; two src/*/"
+                                        + src.getParent().getFileName() + " roots produce the same output path");
+                            }
                             Files.createDirectories(target.getParent());
-                            Files.copy(p, target, StandardCopyOption.REPLACE_EXISTING);
+                            Files.copy(p, target);
                             count.incrementAndGet();
                         } catch (IOException e) {
                             throw new UncheckedIOException(e);
@@ -156,6 +206,10 @@ public final class TransformStage implements Stage {
             throw new UncheckedIOException(e);
         }
         return count.get();
+    }
+
+    private static String toSlash(Path path) {
+        return path.toString().replace('\\', '/');
     }
 
     // ---------------- 4c helper ----------------
