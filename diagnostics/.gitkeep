@@ -1,0 +1,2 @@
+# This directory holds ad-hoc diagnostic logs from pipeline runs.
+# Contents are gitignored (see .gitignore "Diagnostics" section).

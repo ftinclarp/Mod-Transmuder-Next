@@ -14,5 +14,8 @@ out/
 
 .vscode/
 
+# Diagnostics
+diagnostics/
+
 # Test input data — entire in-mods directory is local-only
 in-mods/
