@@ -13,8 +13,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Stage 4 mod-dir resolution: {@code transmudation_input} may be a mod
- * directory itself or a container with exactly one mod subdirectory.
+ * Stage 4 mod-dir validation: {@code transmudation_input} points at the mod
+ * directory directly — never a container of mods.
  */
 class ModDirResolutionTest {
 
@@ -22,7 +22,7 @@ class ModDirResolutionTest {
     Path tmp;
 
     @Test
-    void inputThatIsItselfAModIsUsedDirectly() throws IOException {
+    void modDirectoryResolves() throws IOException {
         Path mod = tmp.resolve("my-mod");
         Files.createDirectories(mod.resolve("src/main/java/com/example"));
         Files.createDirectories(mod.resolve("src/main/resources"));
@@ -34,44 +34,17 @@ class ModDirResolutionTest {
     }
 
     @Test
-    void containerWithExactlyOneModResolvesThatMod() throws IOException {
-        Path container = tmp.resolve("in-mods");
-        Path mod = container.resolve("some-mod");
-        Files.createDirectories(mod.resolve("src/api/java/somemod"));
-        Files.writeString(mod.resolve("src/api/java/somemod/Api.java"), "class Api {}\n");
-
-        Path resolved = TransformStage.resolveModRoot(container);
-
-        assertEquals(mod, resolved);
-    }
-
-    @Test
-    void containerWithZeroModsFailsClearly() throws IOException {
-        Path container = tmp.resolve("empty-in-mods");
-        Files.createDirectories(container.resolve("not-a-mod"));
-        Files.createDirectories(container.resolve("README.md"));
+    void nonModDirectoryFailsWithClearError() throws IOException {
+        Path nonMod = tmp.resolve("not-a-mod");
+        Files.createDirectories(nonMod);
+        Files.writeString(nonMod.resolve("README.md"), "just a readme\n");
 
         TransformException e = assertThrows(TransformException.class,
-                () -> TransformStage.resolveModRoot(container));
+                () -> TransformStage.resolveModRoot(nonMod));
 
-        assertTrue(e.getMessage().contains("no mod found under " + container.toAbsolutePath()),
-                "expected clear no-mod message, got: " + e.getMessage());
-    }
-
-    @Test
-    void containerWithTwoModsFailsAndListsThem() throws IOException {
-        Path container = tmp.resolve("two-mods");
-        Files.createDirectories(container.resolve("ironchest/src/main/resources"));
-        Files.createDirectories(container.resolve("MTN-example-forge-mod/src/main/resources"));
-        Files.writeString(container.resolve("ironchest/src/main/resources/mcmod.info"), "{}\n");
-        Files.writeString(container.resolve("MTN-example-forge-mod/src/main/resources/mcmod.info"), "{}\n");
-
-        TransformException e = assertThrows(TransformException.class,
-                () -> TransformStage.resolveModRoot(container));
-
-        assertTrue(e.getMessage().contains("multiple mods found under " + container.toAbsolutePath()),
-                "expected multiple-mods message, got: " + e.getMessage());
-        assertTrue(e.getMessage().contains("MTN-example-forge-mod") && e.getMessage().contains("ironchest"),
-                "message should list both candidate names: " + e.getMessage());
+        assertTrue(e.getMessage().contains("does not look like a mod"),
+                "expected clear 'does not look like a mod' message, got: " + e.getMessage());
+        assertTrue(e.getMessage().contains(nonMod.toAbsolutePath().toString()),
+                "message should name the offending path: " + e.getMessage());
     }
 }

@@ -28,11 +28,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * to the MTN compatibility layer, wires the layer into the output build, and
  * writes a generated {@code fabric.mod.json}.
  *
- * <p>Mod discovery: the mod root is {@code inputDir} itself when it contains
- * {@code src/main/resources/mcmod.info}, otherwise the first direct
- * subdirectory that does (covers config {@code in-mods} → {@code
- * in-mods/MTN-example-forge-mod}). Fails with a clear message when no
- * {@code mcmod.info} is found.
+ * <p>Mod discovery: {@code transmudation_input} points at the mod directory
+ * directly. {@code resolveModRoot} verifies that the input "looks like a mod"
+ * (has any {@code src/<name>/java} or {@code src/main/resources/mcmod.info})
+ * and fails with a clear message otherwise. There is no container scanning.
  */
 public final class TransformStage implements Stage {
 
@@ -82,7 +81,7 @@ public final class TransformStage implements Stage {
         Path inputDir = ctx.paths().inputDir().toAbsolutePath().normalize();
         Path outputDir = ctx.paths().outputDir().toAbsolutePath().normalize();
 
-        // 4a — resolve the actual mod dir from the (possibly container) input,
+        // 4a — validate the mod dir (transmudation_input is a single mod dir),
         // then parse input metadata (mod discovery + parse).
         Path modRoot = resolveModRoot(inputDir);
         ctx.setResolvedInputDir(modRoot);
@@ -334,47 +333,40 @@ public final class TransformStage implements Stage {
     // ---------------- mod discovery ----------------
 
     /**
-     * Resolves the actual mod directory from {@code inputDir}, which may be
-     * either a mod directory itself or a container holding mod subdirectories
-     * (config {@code in-mods} → one of {@code in-mods/<mod>}).
-     *
-     * <p>When {@code inputDir} itself looks like a mod (has
-     * {@code src/main/resources/mcmod.info}, {@code src/main/java/}, or
-     * {@code src/api/java/}), it is used directly. Otherwise the direct
-     * subdirectories that look like a mod are considered:
-     * exactly one → that directory; zero → clear failure; more than one →
-     * clear failure listing the candidates.
+     * Validates that {@code inputDir} looks like a mod and returns its
+     * absolute, normalized path. Per the project rule, {@code
+     * transmudation_input} always points at the mod directory directly — never
+     * a container of mods. A mod-looking directory has {@code src/main/java/}
+     * or {@code src/main/resources/mcmod.info} (more generally, any
+     * {@code src}/subdir/{@code java}). Otherwise it is left as-is for the
+     * caller and this fails with a clear message.
      */
     static Path resolveModRoot(Path inputDir) {
         Path abs = inputDir.toAbsolutePath().normalize();
         if (looksLikeMod(abs)) {
             return abs;
         }
-        List<Path> subdirs;
-        try (var stream = Files.list(abs)) {
-            subdirs = stream.filter(Files::isDirectory).sorted(Comparator.comparing(Path::toString)).toList();
-        } catch (IOException e) {
-            throw new TransformException("cannot scan input dir " + abs + ": " + e.getMessage(), e);
-        }
-        List<Path> mods = subdirs.stream().filter(TransformStage::looksLikeMod).toList();
-        if (mods.isEmpty()) {
-            throw new TransformException("no mod found under " + abs);
-        }
-        if (mods.size() > 1) {
-            String names = mods.stream()
-                    .map(p -> p.getFileName().toString())
-                    .reduce((a, b) -> a + ", " + b)
-                    .orElse("");
-            throw new TransformException("multiple mods found under " + abs + ": " + names
-                    + ". Leave one, or point transmudation_input directly at the mod.");
-        }
-        return mods.get(0);
+        throw new TransformException("transmudation_input does not look like a mod: " + abs
+                + " (expected src/ and mcmod.info)");
     }
 
     private static boolean looksLikeMod(Path root) {
-        return hasMcmodInfo(root)
-                || Files.isDirectory(root.resolve("src/main/java"))
-                || Files.isDirectory(root.resolve("src/api/java"));
+        try (var stream = Files.list(root.resolve("src"))) {
+            for (Path sub : (Iterable<Path>) stream.filter(Files::isDirectory)::iterator) {
+                Path name = sub.getFileName();
+                if (name == null) {
+                    continue;
+                }
+                // any src/<name>/java directory counts, e.g. src/main/java,
+                // src/api/java, src/core/java — so does src/main/resources/mcmod.info.
+                if (Files.isDirectory(sub.resolve("java"))) {
+                    return true;
+                }
+            }
+        } catch (IOException e) {
+            // fall through to the explicit src/main check below
+        }
+        return hasMcmodInfo(root) || Files.isDirectory(root.resolve("src/main/java"));
     }
 
     private static boolean hasMcmodInfo(Path root) {

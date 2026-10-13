@@ -169,8 +169,8 @@ class TransformStageIntegrationTest {
 
     /** Build a minimal input/out tree and run the transform stage on it. */
     private StageResult runTransform(Config config, Path inMods, Path out) throws IOException {
-        // --- input: in-mods/some-mod/src/main/resources/mcmod.info (descend one level) ---
-        Path modRoot = inMods.resolve("some-mod");
+        // --- input: mod contents directly under inMods (no container nesting) ---
+        Path modRoot = inMods;
         Path mcmodInfo = modRoot.resolve("src/main/resources/mcmod.info");
         Files.createDirectories(mcmodInfo.getParent());
         Files.writeString(mcmodInfo, MC_MOD_INFO);
