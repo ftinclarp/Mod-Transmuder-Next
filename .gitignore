@@ -14,6 +14,5 @@ out/
 
 .vscode/
 
-# Test input data (in-mods) — ignore contents, keep this README
-in-mods/*
-!in-mods/README.md
+# Test input data — entire in-mods directory is local-only
+in-mods/
