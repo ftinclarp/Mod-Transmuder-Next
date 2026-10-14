@@ -5,8 +5,8 @@
   "rewrite_data": [],
   "stop_if_fail": true,
   "use_local_layer": true,
-  "local_layer_version": "2.4.8",
-  "remote_layer_version": "v2.4.8",
+  "local_layer_version": "2.4.9",
+  "remote_layer_version": "v2.4.9",
   "local_minecraft_layer_version": "1.1.5",
   "remote_minecraft_layer_version": "v1.1.5"
 }
