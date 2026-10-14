@@ -111,6 +111,9 @@ public final class TransformStage implements Stage {
         ResourceGenerator.ResourceStats resources =
                 ResourceGenerator.generate(modRoot, outJava, outResources, info.modid());
         String resourcesLine = ResourceGenerator.summary(resources);
+        RecipeGenerator.RecipeStats recipes =
+                RecipeGenerator.generate(outJava, outResources, info.modid());
+        String recipesLine = RecipeGenerator.summary(recipes);
 
         // 4d — wire the layer into the output build (local or JitPack per config).
         wireLayerIntoBuild(outputDir, ctx.config());
@@ -119,7 +122,8 @@ public final class TransformStage implements Stage {
         writeFabricModJson(outResources.resolve("fabric.mod.json"), info, modClassName);
 
         String message = "modid=" + info.modid() + " copies=" + copied
-                + " rewritten=" + rewritten + " layersWired=1 " + resourcesLine;
+                + " rewritten=" + rewritten + " layersWired=1 " + resourcesLine
+                + " " + recipesLine;
         return new TransformSummary(message);
     }
 
