@@ -487,6 +487,33 @@ Not in the budget: first-time loom setup, runtime decompilation
 Coverage: ~95% of known gaps have a plan. The rest are fundamental
 limits or require a separate project.
 
+### Dynamic recipe registration
+
+Transform's RecipeGenerator handles static recipe registrations
+(constant arguments to GameRegistry.addRecipe / addShapedRecipe /
+addShapelessRecipe). It does not handle recipes built dynamically
+inside runtime loops, conditions, or methods (e.g. Iron Chest's
+IronChestType.registerBlocksAndRecipes loops over tiers and builds
+a ShapedOreRecipe per tier).
+
+In such cases the stage logs `[MTN-IGNORE] dynamic recipe
+registration: <file>:<line>` and skips the recipe.
+
+Consequence: dynamic recipes do not appear in the generated port's
+data/<modid>/recipes/. In-game, the affected items are not craftable
+in the normal crafting table.
+
+Workaround for v1: obtain the items via /give or the creative tab.
+
+Long-term: either extend the transform to execute the registration
+code in a sandbox and capture the resulting recipe objects, or
+hand-write the JSON recipes for the specific mod. Both are separate
+tasks, not part of the current pipeline.
+
+Oredict tags are still emitted for the OreDictionary.registerOre
+calls, so generated recipes that reference c:chests/wooden will
+work if such a recipe is written by hand later.
+
   Gaps with a plan (ordered by difficulty):
 
   1. Recipes:
