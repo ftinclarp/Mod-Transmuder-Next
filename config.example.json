@@ -1,7 +1,7 @@
 {
   "template_zip_url": "https://github.com/ftinclarp/MTN-template/archive/refs/tags/v3.zip",
   "transmudation_output": "out",
-  "transmudation_input": "in-mods",
+  "transmudation_input": "C:\\path\\to\\your\\mod-project",
   "rewrite_data": [],
   "stop_if_fail": true,
   "use_local_layer": true,

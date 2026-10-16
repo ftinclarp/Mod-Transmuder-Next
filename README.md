@@ -34,6 +34,18 @@ A minimal config file `transmuder.json` looks like:
 }
 ```
 
+`config.example.json` is the template with placeholder values — copy it to
+`config.json`, adjust the paths, and run. `config.json` is gitignored
+(local-only); only `config.example.json` is tracked.
+
+```sh
+# First-time setup
+cp config.example.json config.json   # then edit transmudation_input
+
+# Run the pipeline
+./gradlew run --args="--config config.json"
+```
+
 Invalid config (missing keys, unknown keys, wrong types) → exit 2 with an
 `ERROR:` line on stderr. See `docs/ARCHITECTURE.md` §6–§7 for the full CLI
 and exit-code contract.

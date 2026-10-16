@@ -20,3 +20,6 @@ diagnostics/
 
 # Test input data — entire in-mods directory is local-only
 in-mods/
+
+# Local config — copy config.example.json to config.json
+config.json
