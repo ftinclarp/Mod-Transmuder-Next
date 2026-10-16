@@ -29,10 +29,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * to the MTN compatibility layer, wires the layer into the output build, and
  * writes a generated {@code fabric.mod.json}.
  *
- * <p>Mod discovery: {@code transmudation_input} points at the mod directory
- * directly. {@code resolveModRoot} verifies that the input "looks like a mod"
- * (has any {@code src/<name>/java} or {@code src/main/resources/mcmod.info})
- * and fails with a clear message otherwise. There is no container scanning.
+ * <p>Mod discovery: {@code transmudation_input} points at a full mod project
+ * directory directly. {@code resolveModRoot} verifies that the input "looks
+ * like a mod" (has a {@code src/} with any {@code src/<name>/java} root) and
+ * fails with a clear message otherwise. Everything outside {@code src/} is
+ * ignored. There is no container scanning.
  */
 public final class TransformStage implements Stage {
 
@@ -391,44 +392,50 @@ public final class TransformStage implements Stage {
     // ---------------- mod discovery ----------------
 
     /**
-     * Validates that {@code inputDir} looks like a mod and returns its
-     * absolute, normalized path. Per the project rule, {@code
-     * transmudation_input} always points at the mod directory directly — never
-     * a container of mods. A mod-looking directory has {@code src/main/java/}
-     * or {@code src/main/resources/mcmod.info} (more generally, any
-     * {@code src}/subdir/{@code java}). Otherwise it is left as-is for the
-     * caller and this fails with a clear message.
+     * Validates that the input {@code inputDir} exists, is non-empty, and has
+     * a {@code src/} subdirectory with at least one {@code src/<name>/java}
+     * root — "looks like a mod". Per the project rule, {@code
+     * transmudation_input} always points at a full mod project directory
+     * directly — never a container of mods. Only the {@code src/} check is
+     * done; the top level may hold anything else (build.gradle, .git/, etc.)
+     * which is ignored. {@code mcmod.info}/{@code build.gradle} presence is
+     * not checked here. Fails with a clear message otherwise.
      */
     static Path resolveModRoot(Path inputDir) {
         Path abs = inputDir.toAbsolutePath().normalize();
-        if (looksLikeMod(abs)) {
-            return abs;
+        if (!Files.isDirectory(abs)) {
+            throw new TransformException("input directory does not exist: " + abs);
         }
-        throw new TransformException("transmudation_input does not look like a mod: " + abs
-                + " (expected src/ and mcmod.info)");
+        if (isEmptyDir(abs)) {
+            throw new TransformException("input directory is empty: " + abs
+                    + " (put a full mod project inside, including its src/ folder)");
+        }
+        Path src = abs.resolve("src");
+        if (!Files.isDirectory(src) || !looksLikeMod(src)) {
+            throw new TransformException("input does not look like a mod: " + abs + " (missing src/)");
+        }
+        return abs;
     }
 
-    private static boolean looksLikeMod(Path root) {
-        try (var stream = Files.list(root.resolve("src"))) {
+    private static boolean looksLikeMod(Path src) {
+        try (var stream = Files.list(src)) {
             for (Path sub : (Iterable<Path>) stream.filter(Files::isDirectory)::iterator) {
-                Path name = sub.getFileName();
-                if (name == null) {
-                    continue;
-                }
-                // any src/<name>/java directory counts, e.g. src/main/java,
-                // src/api/java, src/core/java — so does src/main/resources/mcmod.info.
                 if (Files.isDirectory(sub.resolve("java"))) {
                     return true;
                 }
             }
         } catch (IOException e) {
-            // fall through to the explicit src/main check below
+            // src/ exists but is unreadable → not a mod
         }
-        return hasMcmodInfo(root) || Files.isDirectory(root.resolve("src/main/java"));
+        return false;
     }
 
-    private static boolean hasMcmodInfo(Path root) {
-        return Files.isRegularFile(root.resolve("src/main/resources/mcmod.info"));
+    private static boolean isEmptyDir(Path root) {
+        try (var stream = Files.list(root)) {
+            return stream.findAny().isEmpty();
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     /**

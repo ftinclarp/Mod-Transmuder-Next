@@ -203,6 +203,65 @@ class TransformStageIntegrationTest {
                 "src/api/java/B.java must be copied under the merged output java root");
     }
 
+    @Test
+    void copiesOnlySrcIgnoringTopLevelJunk() throws IOException {
+        Path modRoot = tmp.resolve("in-mod");
+        Path out = tmp.resolve("out");
+        Files.createDirectories(modRoot.resolve("src/main/java/com/example"));
+        Files.createDirectories(modRoot.resolve("src/main/resources"));
+        Files.writeString(modRoot.resolve("src/main/java/A.java"), "class A {}\n");
+        Files.writeString(modRoot.resolve("src/main/resources/mcmod.info"), MC_MOD_INFO);
+
+        // junk inside the full mod project, outside src/
+        Files.createDirectories(modRoot.resolve(".git/objects"));
+        Files.writeString(modRoot.resolve(".git/config"), "[core]\n");
+        Files.createDirectories(modRoot.resolve(".gradle"));
+        Files.createDirectories(modRoot.resolve("build"));
+        Files.writeString(modRoot.resolve("build/junk.bin"), "junk");
+        Files.createDirectories(modRoot.resolve("run"));
+        Files.createDirectories(modRoot.resolve("gradle/wrapper"));
+        Files.writeString(modRoot.resolve("build.gradle"), "plugins {}\n");
+        Files.writeString(modRoot.resolve("gradlew"), "#!/bin/sh\n");
+        Files.writeString(modRoot.resolve("settings.gradle"), "rootProject\n");
+        Files.writeString(modRoot.resolve("gradle.properties"), "key=value\n");
+        Files.writeString(modRoot.resolve("repositories.gradle"), "repos\n");
+        Files.writeString(modRoot.resolve("README.md"), "readme\n");
+
+        Path buildFile = out.resolve("build.gradle");
+        Files.createDirectories(out.resolve("src/main/java/com/example"));
+        Files.createDirectories(out.resolve("src/main/resources"));
+        Files.writeString(buildFile, "repositories {\n}\n\ndependencies {\n}\n");
+        Files.writeString(out.resolve("src/main/resources/fabric.mod.json"), "{}\n");
+        Files.writeString(out.resolve("src/main/java/com/example/ExampleMod.java"),
+                "package com.example;\n\nimport net.fabricmc.api.ModInitializer;\npublic class ExampleMod {}\n");
+
+        Config config = new Config(
+                "https://example.com/template.zip", out.toString(), modRoot.toString(),
+                new ObjectMapper().createArrayNode(), true, null, null, null, null,
+                null, null, null, null, null);
+        PipelineContext ctx = new PipelineContext(config, PathResolver.resolve(config), new Logger(), false);
+        StageResult result = new TransformStage().run(ctx);
+        assertEquals(Status.SUCCESS, result.status(), result.message());
+
+        // only src/ content landed in out/
+        assertTrue(Files.isRegularFile(out.resolve("src/main/java/A.java")),
+                "src/main/java/A.java must be copied");
+        assertFalse(Files.exists(out.resolve("README.md")),
+                "input README.md must NOT be copied");
+        assertFalse(Files.exists(out.resolve(".git")),
+                "input .git must NOT be copied");
+        assertFalse(Files.exists(out.resolve("build")),
+                "input build/ must NOT be copied");
+        assertFalse(Files.exists(out.resolve("gradlew")),
+                "input gradlew must NOT be copied");
+        assertFalse(Files.exists(out.resolve("settings.gradle")),
+                "input settings.gradle must NOT be copied");
+        // nothing new at the output top level beyond the pre-seeded template
+        try (var entries = Files.list(out)) {
+            assertFalse(entries.anyMatch(p -> p.getFileName().toString().equals("junk.bin")));
+        }
+    }
+
     /** Build a minimal input/out tree and run the transform stage on it. */
     private StageResult runTransform(Config config, Path inMods, Path out) throws IOException {
         // --- input: mod contents directly under inMods (no container nesting) ---
