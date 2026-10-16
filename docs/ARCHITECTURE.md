@@ -346,6 +346,18 @@ Layer coverage: Bucket A is empty. All layer-tail classes and
 methods Iron Chest needs are present as stubs (with TODO(mtn-layer)
 markers).
 
+## Iron Chest port status (after layer batches + network + events + oredict)
+
+- stage-transform: SUCCESS
+- stage-validate: SUCCESS (gradle build produced a jar)
+- Compile errors: 0 (direct compileJava on JDK 25)
+- Remaining work: client rendering (Bucket B, 47 original errors).
+  This means the ported jar compiles and packs, but the chest
+  block is not rendered in-game (no TESR bridge yet).
+
+This is the first non-example mod ported end-to-end through MTN.
+
+
 Remaining for a full Iron Chest port: Bucket B, which is not
 layer-tail. It requires real implementations, not stubs:
 
