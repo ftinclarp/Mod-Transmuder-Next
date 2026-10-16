@@ -346,7 +346,7 @@ public final class TransformStage implements Stage {
         ObjectNode root = JSON.createObjectNode();
         root.put("schemaVersion", 1);
         root.put("id", info.modid());
-        root.put("version", info.version());
+        root.put("version", sanitizeVersion(info.version()));
         root.put("name", info.name());
         root.put("description", info.description());
         ArrayNode authors = root.putArray("authors");
@@ -387,6 +387,21 @@ public final class TransformStage implements Stage {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /**
+     * Forge mods often carry unresolved ForgeGradle placeholders like
+     * {@code "${modVersion}"} in their mcmod.info. Writing that into
+     * fabric.mod.json verbatim would make the output template's
+     * {@code processResources.expand "version"} fail with "Missing property
+     * (modVersion)". Replace such placeholders with a safe literal.
+     */
+    private static String sanitizeVersion(String version) {
+        if (version == null) {
+            return "1.0.0";
+        }
+        String stripped = version.replaceAll("\\$\\{[^}]*}", "");
+        return stripped.isBlank() ? "1.0.0" : stripped.trim();
     }
 
     // ---------------- mod discovery ----------------
