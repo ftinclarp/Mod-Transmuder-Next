@@ -119,6 +119,11 @@ public final class TransformStage implements Stage {
         // 4d — wire the layer into the output build (local or JitPack per config).
         wireLayerIntoBuild(outputDir, ctx.config());
 
+        // 4d' — name the output project after the ported mod's modid so the
+        // produced jar is <modid>-<version>.jar instead of the template's
+        // generic "modid".
+        renameProjectToModid(outputDir, info.modid());
+
         // 4e — generate fabric.mod.json.
         writeFabricModJson(outResources.resolve("fabric.mod.json"), info, modClassName);
 
@@ -338,6 +343,34 @@ public final class TransformStage implements Stage {
             throw new TransformException("cannot locate '" + anchor + "' in build file to wire the layer");
         }
         return sb.toString();
+    }
+
+    // ---------------- 4d' helper ----------------
+
+    /**
+     * Rewrites the template's generic {@code rootProject.name = 'modid'} (in
+     * {@code settings.gradle}) to the ported mod's modid, so the produced jar
+     * is named {@code <modid>-<version>.jar} instead of {@code modid-...}.
+     * The modid is read from mcmod.info, not from the file system, so it is
+     * safe against unsafe characters in folder names. Skips silently when the
+     * settings file or the {@code rootProject.name} assignment is absent.
+     */
+    private void renameProjectToModid(Path outputDir, String modid) {
+        Path settingsFile = outputDir.resolve("settings.gradle");
+        if (!Files.isRegularFile(settingsFile)) {
+            return;
+        }
+        try {
+            String text = Files.readString(settingsFile, StandardCharsets.UTF_8);
+            String rewritten = text.replaceFirst(
+                    "(?m)^\\s*rootProject\\.name\\s*=\\s*['\"][^'\"]*['\"]",
+                    "rootProject.name = '" + modid + "'");
+            if (!rewritten.equals(text)) {
+                Files.writeString(settingsFile, rewritten, StandardCharsets.UTF_8);
+            }
+        } catch (IOException e) {
+            throw new TransformException("failed to rename project in " + settingsFile + ": " + e.getMessage(), e);
+        }
     }
 
     // ---------------- 4e helper ----------------
