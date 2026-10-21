@@ -44,10 +44,32 @@ final class ResourceGenerator {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    private static final Pattern REGISTER_BLOCK = Pattern.compile(
-            "GameRegistry\\.registerBlock\\([^,]+,\\s*\"([^\"]+)\"\\)");
+    private static final Pattern REGISTER_BLOCK_2 = Pattern.compile(
+            "GameRegistry\\.registerBlock\\([^,\\)]+,\\s*\"([^\"]+)\"\\)");
+    private static final Pattern REGISTER_BLOCK_3 = Pattern.compile(
+            "GameRegistry\\.registerBlock\\([^,\\)]+,\\s*[^\\)]+,\\s*\"([^\"]+)\"\\)");
     private static final Pattern REGISTER_ITEM = Pattern.compile(
-            "GameRegistry\\.registerItem\\([^,]+,\\s*\"([^\"]+)\"\\)");
+            "GameRegistry\\.registerItem\\([^,\\)]+,\\s*\"([^\"]+)\"\\)");
+    private static final Pattern REGISTER_ITEM_VAR = Pattern.compile(
+            "GameRegistry\\.registerItem\\([^,\\)]+,\\s*\\w+\\)");
+    private static final Pattern REGISTER_TEXTURE_ITEM = Pattern.compile(
+            "textures\\s*=\\s*\"([^\"]+)\"");
+
+    /** Direct TESR bindings, e.g. {@code bindTileEntitySpecialRenderer(TileEntityIronChest.class, ...)}. */
+    private static final Pattern BIND_TESR = Pattern.compile(
+            "bindTileEntitySpecialRenderer\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_]*)\\.class");
+    /**
+     * Tile-entity class literals of the form {@code TileEntityX.class}. Covers
+     * data-driven bindings where the bound class comes from an enum/field
+     * (1.7.10 chest mods do {@code bindTileEntitySpecialRenderer(typ.clazz, ...)}
+     * with {@code typ.clazz = TileEntityIronChest.class}), which a direct
+     * binding regex can't resolve.
+     */
+    private static final Pattern TILE_CLASS_LITERAL = Pattern.compile(
+            "\\b(TileEntity[A-Za-z0-9_]*)\\.class");
+    /** A block creates per-instance tile entities via one of these methods. */
+    private static final Pattern CREATE_TILE = Pattern.compile(
+            "createTileEntity|createNewTileEntity");
 
     /** "item.old.name" dep key forms. */
     private static final Pattern OLD_ITEM_KEY = Pattern.compile("^item\\.([^.]+)\\.name$");
@@ -73,17 +95,66 @@ final class ResourceGenerator {
      * @param modid        the mod's id from mcmod.info
      */
     static ResourceStats generate(Path modRoot, Path outJava, Path outResources, String modid) {
-        Set<String> blockNames = discoverNames(outJava, REGISTER_BLOCK);
+        // Asset paths/namespaces must be lowercase for Fabric. Use the
+        // lowercased id everywhere.
+        String assetId = modid.toLowerCase(java.util.Locale.ROOT);
+        Set<String> blockNames = discoverNames(outJava, REGISTER_BLOCK_2);
+        blockNames.addAll(discoverNames(outJava, REGISTER_BLOCK_3));
         Set<String> itemNames = discoverNames(outJava, REGISTER_ITEM);
+        // registerItem(item, variableName) forms can't be captured by regex, so
+        // also take names from the item texture folder: one model per texture.
+        itemNames.addAll(discoverItemTextures(modRoot, assetId, "items"));
+        itemNames.addAll(discoverItemTextures(modRoot, assetId, "item"));
+        lowerAll(blockNames);
+        lowerAll(itemNames);
 
-        copyResourcesWithRename(modRoot, outResources, modid);
+        copyResourcesWithRename(modRoot, outResources, assetId);
 
-        int models = writeModels(outResources, modid, blockNames, itemNames);
-        int blockstates = writeBlockstates(outResources, modid, blockNames);
-        int langKeys = convertLang(modRoot, outResources, modid, blockNames, itemNames);
-        int fallback = ensureTextures(outResources, modid, blockNames, itemNames);
+        // Blocks whose geometry is drawn entirely by a tile-entity special
+        // renderer (TESR) must NOT also render a static model, or the static
+        // cube_all box z-fights with / occludes the TESR geometry. Emit an
+        // empty in-world model for those (item icon still visible).
+        Set<String> tesrBlocks = discoverTesrBlocks(outJava, blockNames);
+
+        int models = writeModels(outResources, assetId, blockNames, itemNames, tesrBlocks);
+        int blockstates = writeBlockstates(outResources, assetId, blockNames);
+        int langKeys = convertLang(modRoot, outResources, assetId, blockNames, itemNames);
+        int fallback = ensureTextures(outResources, assetId, blockNames, itemNames);
 
         return new ResourceStats(fallback, models, blockstates, langKeys);
+    }
+
+    private static void lowerAll(Set<String> names) {
+        Set<String> lower = new LinkedHashSet<>();
+        for (String n : names) {
+            lower.add(n.toLowerCase(java.util.Locale.ROOT));
+        }
+        names.clear();
+        names.addAll(lower);
+    }
+
+    /** Item ids implied by the mod's item-texture folder (assumes one texture
+     * per item id, which is the common 1.7.10 convention). */
+    private static Set<String> discoverItemTextures(Path modRoot, String assetId, String folder) {
+        Set<String> names = new LinkedHashSet<>();
+        java.nio.file.Path dir = modRoot.resolve(
+                "src/main/resources/assets/" + assetId + "/textures/" + folder);
+        if (!Files.isDirectory(dir)) {
+            return names;
+        }
+        try (var walk = Files.walk(dir)) {
+            walk.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().toLowerCase(
+                            java.util.Locale.ROOT).endsWith(".png"))
+                    .forEach(p -> {
+                        String n = p.getFileName().toString();
+                        names.add(n.substring(0, n.length() - 4)
+                                .toLowerCase(java.util.Locale.ROOT));
+                    });
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return names;
     }
 
     // ---------------- 1. discover registered names ----------------
@@ -111,6 +182,112 @@ final class ResourceGenerator {
             throw new UncheckedIOException(e);
         }
         return names;
+    }
+
+    // ---------------- 1b. TESR block detection ----------------
+
+    /**
+     * Blocks whose in-world rendering is handled by a tile-entity special
+     * renderer (TESR). These are detected statically in the transformed
+     * sources: a block flags as TESR when it overrides {@code create(New)
+     * TileEntity} and its own source references a tile class the mod binds a
+     * special renderer to. Such blocks get an empty baked model so the static
+     * block doesn't overlap or z-fight with the TESR geometry.
+     */
+    private static Set<String> discoverTesrBlocks(Path outJava, Set<String> blockNames) {
+        if (outJava == null || !Files.isDirectory(outJava) || blockNames.isEmpty()) {
+            return java.util.Set.of();
+        }
+        Set<String> bound = resolveBoundTileClasses(outJava);
+        if (bound.isEmpty()) {
+            return java.util.Set.of();
+        }
+        Set<String> tesr = new LinkedHashSet<>();
+        for (String name : blockNames) {
+            Path blockSrc = findBlockSource(outJava, name);
+            if (blockSrc == null) {
+                continue;
+            }
+            String text;
+            try {
+                text = Files.readString(blockSrc, StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+            if (!CREATE_TILE.matcher(text).find()) {
+                continue;
+            }
+            for (String b : bound) {
+                if (Pattern.compile("\\b" + Pattern.quote(b) + "\\b").matcher(text).find()) {
+                    tesr.add(name);
+                    break;
+                }
+            }
+        }
+        return tesr;
+    }
+
+    /**
+     * The set of tile-entity classes with a bound special renderer. Direct
+     * {@code bindTileEntitySpecialRenderer(X.class, ...)} calls are resolved
+     * literally; when the binding is data-driven ({@code typ.clazz}, an enum
+     * field), every {@code TileEntity*.class} literal in the sources is used.
+     */
+    private static Set<String> resolveBoundTileClasses(Path outJava) {
+        Set<String> bound = new LinkedHashSet<>();
+        List<Path> javas = new java.util.ArrayList<>();
+        try (var walk = Files.walk(outJava)) {
+            walk.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().endsWith(".java"))
+                    .forEach(javas::add);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        for (Path p : javas) {
+            try {
+                String s = Files.readString(p, StandardCharsets.UTF_8);
+                Matcher m = BIND_TESR.matcher(s);
+                while (m.find()) {
+                    bound.add(m.group(1));
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+        if (!bound.isEmpty()) {
+            return bound;
+        }
+        for (Path p : javas) {
+            try {
+                String s = Files.readString(p, StandardCharsets.UTF_8);
+                Matcher m = TILE_CLASS_LITERAL.matcher(s);
+                while (m.find()) {
+                    String n = m.group(1);
+                    if (!bound.contains(n) && !n.equals("TileEntity")) {
+                        bound.add(n);
+                    }
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+        return bound;
+    }
+
+    /** Finds a block source file {@code <name>.java} anywhere in {@code outJava},
+     * matching case-insensitively (registry names often differ in casing from
+     * the class name, e.g. {@code BlockIronChest}). */
+    private static Path findBlockSource(Path outJava, String name) {
+        String wanted = name.toLowerCase(java.util.Locale.ROOT) + ".java";
+        try (var walk = Files.walk(outJava)) {
+            return walk.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString()
+                            .toLowerCase(java.util.Locale.ROOT).equals(wanted))
+                    .findFirst()
+                    .orElse(null);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     // ---------------- 2. resource copy + rename ----------------
@@ -215,6 +392,14 @@ final class ResourceGenerator {
                 } else if (rel.contains(itemsLegacy)) {
                     targetRel = rel.replace(itemsLegacy, "assets/" + modid + "/textures/item/");
                 }
+                // Fabric's ModNioResourcePack rejects uppercase paths, so force
+                // every copied resource filename to lowercase on disk.
+                int sep = targetRel.lastIndexOf('/');
+                String base = sep >= 0 ? targetRel.substring(sep + 1) : targetRel;
+                String lowerBase = base.toLowerCase(java.util.Locale.ROOT);
+                if (!lowerBase.equals(base)) {
+                    targetRel = (sep >= 0 ? targetRel.substring(0, sep + 1) : "") + lowerBase;
+                }
                 results.add(new ResourceFile(p, targetRel));
             });
         } catch (IOException e) {
@@ -230,15 +415,38 @@ final class ResourceGenerator {
     // ---------------- 3. JSON models + blockstates ----------------
 
     private static int writeModels(Path outResources, String modid,
-                                   Set<String> blockNames, Set<String> itemNames) {
+                                   Set<String> blockNames, Set<String> itemNames,
+                                   Set<String> tesrBlocks) {
         int written = 0;
         try {
             for (String name : blockNames) {
-                // block/<name>.json — cube_all using the block texture
+                String blockTexId = resolveBlockTexture(outResources, modid, name);
+                if (tesrBlocks.contains(name)) {
+                    // TESR-only block: empty in-world model (no elements) so the
+                    // baked model doesn't overlap the TESR geometry. Keep the
+                    // particle texture for break particles.
+                    ObjectNode blockModel = JSON.createObjectNode();
+                    ObjectNode blockTex = blockModel.putObject("textures");
+                    blockTex.put("particle", blockTexId);
+                    writeJson(outResources.resolve("assets/" + modid + "/models/block/" + name + ".json"), blockModel);
+                    written++;
+
+                    // item/<name>.json — keep a visible inventory icon (the
+                    // empty block model would render nothing), using the same
+                    // chest sheet so the hotbar/inventory item stays usable.
+                    ObjectNode itemBlock = JSON.createObjectNode();
+                    itemBlock.put("parent", "block/cube_all");
+                    ObjectNode itemTex = itemBlock.putObject("textures");
+                    itemTex.put("all", blockTexId);
+                    writeJson(outResources.resolve("assets/" + modid + "/models/item/" + name + ".json"), itemBlock);
+                    written++;
+                    continue;
+                }
+                // block/<name>.json — cube_all using a resolved block texture
                 ObjectNode blockModel = JSON.createObjectNode();
                 blockModel.put("parent", "block/cube_all");
                 ObjectNode blockTex = blockModel.putObject("textures");
-                blockTex.put("all", modid + ":block/" + name);
+                blockTex.put("all", blockTexId);
                 writeJson(outResources.resolve("assets/" + modid + "/models/block/" + name + ".json"), blockModel);
                 written++;
 
@@ -261,6 +469,63 @@ final class ResourceGenerator {
             throw new UncheckedIOException(e);
         }
         return written;
+    }
+
+    /**
+     * Chooses a texture id for a block model, preferring an existing texture
+     * under {@code textures/block} or {@code textures/model} (the latter is how
+     * 1.7.10 chest mods store their block sheet, e.g. {@code model/ironchest.png}
+     * for block id {@code blockironchest}).
+     *
+     * The vanilla blocks atlas only indexes {@code textures/block} and
+     * {@code textures/item} as source directories, so any chest sheet found
+     * under {@code textures/model} is copied into {@code textures/block} before
+     * the model references it — otherwise it would load as the missing-texture
+     * (black/magenta) block.
+     */
+    private static String resolveBlockTexture(Path outResources, String modid, String name) {
+        if (textureExists(outResources, modid, "block", name)) {
+            return modid + ":block/" + name;
+        }
+        // "blockironchest" -> model/ironchest.png
+        if (name.startsWith("block") && name.length() > 5
+                && textureExists(outResources, modid, "model", name.substring(5))) {
+            String stripped = name.substring(5);
+            copyTextureTo(outResources, modid, "model", stripped);
+            return modid + ":block/" + stripped;
+        }
+        if (textureExists(outResources, modid, "model", name)) {
+            copyTextureTo(outResources, modid, "model", name);
+            return modid + ":block/" + name;
+        }
+        return modid + ":block/" + name;
+    }
+
+    /** Copies {@code textures/model/<name>.png} into {@code textures/block/} if
+     * not already present, so the blocks atlas can index it. */
+    private static void copyTextureTo(Path outResources, String modid,
+                                      String fromFolder, String name) {
+        Path src = outResources.resolve("assets/" + modid + "/textures/"
+                + fromFolder + "/" + name + ".png");
+        Path dst = outResources.resolve("assets/" + modid
+                + "/textures/block/" + name + ".png");
+        if (!Files.isRegularFile(src) || Files.exists(dst)) {
+            return;
+        }
+        try {
+            Files.createDirectories(dst.getParent());
+            Files.copy(src, dst);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static boolean textureExists(Path outResources, String modid,
+                                         String folder, String name) {
+        return Files.isRegularFile(outResources.resolve(
+                "assets/" + modid + "/textures/" + folder + "/" + name + ".png"))
+                || Files.isRegularFile(outResources.resolve(
+                "assets/" + modid + "/textures/" + folder + "/" + name + ".PNG"));
     }
 
     private static int writeBlockstates(Path outResources, String modid, Set<String> blockNames) {

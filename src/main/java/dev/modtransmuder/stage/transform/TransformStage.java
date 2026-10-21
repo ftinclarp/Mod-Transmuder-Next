@@ -100,6 +100,9 @@ public final class TransformStage implements Stage {
         // 4c — rewrite Forge imports in the copied Java files.
         int rewritten = rewriteJavaImports(outJava);
 
+        // 4c'' — rewrite LWJGL2 GL11 calls to MatrixStack (Yarn names).
+        int gl11Rewritten = rewriteGl11(outJava);
+
         // 4c' — discover the @Mod-annotated class in the copied sources.
         String modClassName = discoverModClass(outJava);
 
@@ -128,8 +131,8 @@ public final class TransformStage implements Stage {
         writeFabricModJson(outResources.resolve("fabric.mod.json"), info, modClassName);
 
         String message = "modid=" + info.modid() + " copies=" + copied
-                + " rewritten=" + rewritten + " layersWired=1 " + resourcesLine
-                + " " + recipesLine;
+                + " rewritten=" + rewritten + " gl11=" + gl11Rewritten
+                + " layersWired=1 " + resourcesLine + " " + recipesLine;
         return new TransformSummary(message);
     }
 
@@ -236,6 +239,43 @@ public final class TransformStage implements Stage {
                         try {
                             String text = Files.readString(p, StandardCharsets.UTF_8);
                             String rewritten = ImportRewriter.rewriteFml(text);
+                            if (!rewritten.equals(text)) {
+                                Files.writeString(p, rewritten, StandardCharsets.UTF_8);
+                                changed.incrementAndGet();
+                            }
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    });
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return changed.get();
+    }
+
+    // ---------------- 4c''' helper ----------------
+
+    /**
+     * Rewrites LWJGL 2 (GL11) fixed-function calls to the modern
+     * {@code MatrixStack} API (Yarn names), so GL11-heavy ported TESR/GUI code
+     * runs on LWJGL 3 without the legacy GL state machine. Uses the
+     * {@code com.github.ftinclarp.lwjgl.Gl11ToPoseStackTransformer} on every
+     * copied .java file. Returns the number of files changed.
+     */
+    private int rewriteGl11(Path outJava) {
+        if (!Files.isDirectory(outJava)) {
+            return 0;
+        }
+        AtomicInteger changed = new AtomicInteger();
+        com.github.ftinclarp.lwjgl.Gl11ToPoseStackTransformer t =
+                new com.github.ftinclarp.lwjgl.Gl11ToPoseStackTransformer();
+        try (var walk = Files.walk(outJava)) {
+            walk.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().endsWith(".java"))
+                    .forEach(p -> {
+                        try {
+                            String text = Files.readString(p, StandardCharsets.UTF_8);
+                            String rewritten = t.transform(text);
                             if (!rewritten.equals(text)) {
                                 Files.writeString(p, rewritten, StandardCharsets.UTF_8);
                                 changed.incrementAndGet();
@@ -378,7 +418,10 @@ public final class TransformStage implements Stage {
     private void writeFabricModJson(Path target, ForgeModInfo info, String modClassName) {
         ObjectNode root = JSON.createObjectNode();
         root.put("schemaVersion", 1);
-        root.put("id", info.modid());
+        // Fabric mod ids must be lowercase [a-z][a-z0-9-_]*. mcmod.info's
+        // Forge modids are often capitalized (e.g. "IronChest"), which Fabric
+        // rejects at mod discovery — normalize here.
+        root.put("id", info.modid().toLowerCase(java.util.Locale.ROOT));
         root.put("version", sanitizeVersion(info.version()));
         root.put("name", info.name());
         root.put("description", info.description());

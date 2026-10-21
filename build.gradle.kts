@@ -24,6 +24,9 @@ application {
 dependencies {
     implementation("com.fasterxml.jackson.core:jackson-databind:2.17.2")
     implementation("info.picocli:picocli:4.7.6")
+    // AST rewriting for the LWJGL2->PoseStack GL11 transformer
+    // (com.github.ftinclarp.lwjgl.Gl11ToPoseStackTransformer).
+    implementation("com.github.javaparser:javaparser-core:3.26.1")
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     // Gradle 9 no longer wires the JUnit Platform launcher automatically.
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
