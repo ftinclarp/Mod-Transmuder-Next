@@ -5,6 +5,8 @@ build/
 # Java
 *.class
 *.jar
+*.lock
+*.log
 !gradle/wrapper/gradle-wrapper.jar
 
 # IDE
