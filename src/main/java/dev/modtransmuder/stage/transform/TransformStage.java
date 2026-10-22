@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 
 /**
  * {@code stage-transform} (ARCHITECTURE §5, stage 4).
@@ -328,11 +329,19 @@ public final class TransformStage implements Stage {
             String minecraftCoord = "com.github.ftinclarp:MTN-minecraft-layer:"
                     + (local ? config.effectiveLocalMinecraftLayerVersion()
                              : config.effectiveRemoteMinecraftLayerVersion());
-            boolean hasForge = text.contains(forgeCoord);
-            boolean hasMinecraft = text.contains(minecraftCoord);
-            if (hasForge && hasMinecraft) {
-                return; // already wired
-            }
+            // The wiring is an idempotent upsert: a previous run (or a previous
+            // layer version) may have left a modImplementation line for the same
+            // artifact. Strip every such line so switching versions never leaves
+            // stale duplicates behind, then insert the current coordinate once.
+            Pattern oldForge = Pattern.compile(
+                    "^\\s*modImplementation\\s+\"com\\.github\\.ftinclarp:MTN-forge-layer:[^\"]*\"\\s*$",
+                    Pattern.MULTILINE);
+            Pattern oldMinecraft = Pattern.compile(
+                    "^\\s*modImplementation\\s+\"com\\.github\\.ftinclarp:MTN-minecraft-layer:[^\"]*\"\\s*$",
+                    Pattern.MULTILINE);
+            String stripped = text
+                    .replaceAll(oldForge.pattern(), "")
+                    .replaceAll(oldMinecraft.pattern(), "");
 
             boolean needsRepoLifecycle = false;
             String repoBlock;
@@ -344,18 +353,14 @@ public final class TransformStage implements Stage {
                 needsRepoLifecycle = !text.contains(LAYER_JITPACK_URL);
             }
 
-            String warped = text;
+            String warped = stripped;
             if (needsRepoLifecycle) {
                 warped = insertAfterBlockLine(warped, "repositories {", repoBlock);
             }
-            if (!hasForge) {
-                warped = insertAfterBlockLine(warped, "dependencies {",
-                        LAYER_COMMENT + "\n\tmodImplementation \"" + forgeCoord + "\"");
-            }
-            if (!hasMinecraft) {
-                warped = insertAfterBlockLine(warped, "dependencies {",
-                        LAYER_COMMENT + "\n\tmodImplementation \"" + minecraftCoord + "\"");
-            }
+            warped = insertAfterBlockLine(warped, "dependencies {",
+                    LAYER_COMMENT + "\n\tmodImplementation \"" + forgeCoord + "\"");
+            warped = insertAfterBlockLine(warped, "dependencies {",
+                    LAYER_COMMENT + "\n\tmodImplementation \"" + minecraftCoord + "\"");
             Files.writeString(buildFile, warped, StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new TransformException("failed to wire layer into " + buildFile + ": " + e.getMessage(), e);
